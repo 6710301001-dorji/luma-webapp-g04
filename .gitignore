@@ -88,6 +88,9 @@ services/ai-engine/forge/models/
 *.swo
 *~
 
+# ── AI coding tools (config ต่อเครื่อง ไม่ใช่ของทีม) ─────────────────────────
+.claude/settings.local.json
+
 # ── OS ───────────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db

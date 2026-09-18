@@ -7,48 +7,62 @@
   <link rel="stylesheet" href="../css/main.css" />
   <link rel="stylesheet" href="../css/auth.css" />
 </head>
-<body data-page="login" class="auth-page">
-  <div class="auth-card">
-    <a class="auth-card__brand" href="index.html">LUMA</a>
+<body data-page="login">
+  <header class="app-header">
+    <div id="app-nav-slot"></div>
+  </header>
 
-    <form class="auth-form" id="login-form" novalidate>
-      <p class="auth-error" id="login-error" hidden role="alert"></p>
-
-      <div class="auth-field">
-        <label class="auth-field__label" for="login-email">อีเมล</label>
-        <input
-          class="auth-field__input"
-          type="email"
-          id="login-email"
-          name="email"
-          autocomplete="username"
-          required
-        />
+  <main class="app-main">
+    <div class="auth-container">
+      <div class="auth-header">
+        <h1>เข้าสู่ระบบ LUMA</h1>
+        <p>ยินดีต้อนรับกลับเข้าสู่ระบบจัดการและสร้างภาพ AI</p>
       </div>
 
-      <div class="auth-field">
-        <label class="auth-field__label" for="login-password">รหัสผ่าน</label>
-        <input
-          class="auth-field__input"
-          type="password"
-          id="login-password"
-          name="password"
-          autocomplete="current-password"
-          required
-        />
+      <div id="login-error" class="auth-alert auth-alert--error" hidden role="alert"></div>
+      <div id="login-success" class="auth-alert auth-alert--success" hidden role="status"></div>
+
+      <form id="login-form" class="auth-form" action="javascript:void(0);" novalidate>
+        <div class="form-group">
+          <label for="email">อีเมล *</label>
+          <input
+            type="email"
+            id="email"
+            name="email"
+            class="form-control"
+            placeholder="example@domain.com"
+            required
+            autocomplete="email"
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="password">รหัสผ่าน *</label>
+          <input
+            type="password"
+            id="password"
+            name="password"
+            class="form-control"
+            placeholder="••••••••"
+            required
+            autocomplete="current-password"
+          />
+        </div>
+
+        <button type="submit" id="login-submit" class="auth-btn">
+          เข้าสู่ระบบ
+        </button>
+      </form>
+
+      <div class="auth-footer">
+        ยังไม่มีบัญชีผู้ใช้? <a href="register.html">สมัครสมาชิกที่นี่</a>
       </div>
+    </div>
+  </main>
 
-      <button class="auth-submit" type="submit" id="login-submit">
-        เข้าสู่ระบบ
-      </button>
-    </form>
+  <form id="logout-form" action="#" method="post" hidden></form>
 
-    <p class="auth-footer">
-      ยังไม่มีบัญชี? <a href="register.html">สมัครสมาชิก</a>
-    </p>
-  </div>
-
- <script src="../js/mock-auth.js"></script>
- <script src="../js/login.js"></script>
+  <script src="../js/layout.js"></script>
+  <script src="../js/login.js"></script>
 </body>
 </html>

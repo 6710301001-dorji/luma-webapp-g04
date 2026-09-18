@@ -1,84 +1,106 @@
 /**
- * LUMA — Login form
+ * LUMA — Login Page Logic
  * -------------------------------------------------------------------------
- * ตอนนี้ใช้ js/mock-auth.js จำลอง backend ไปก่อน (ดูคอมเมนต์ในไฟล์นั้น)
- * เพราะ #32/#49 ปิด contract แล้ว แต่ backend ตัวจริงยังไม่รันขึ้นมา
+ * จัดการฟอร์มเข้าสู่ระบบ และส่งคำขอไปยัง POST /api/auth/login
+ * พร้อมส่ง Session Cookie ข้ามพอร์ต (credentials: "include")
  *
- * พอ backend จริงพร้อมใช้งาน ให้ลบ TODO ด้านล่างออก แล้วเรียก fetch()
- * ตรงตาม docs/API_CONTRACT.md แทน (เอา mock-auth.js ออกจาก login.html ด้วย)
+ * อ้างอิง: Issue #50, docs/API_CONTRACT.md
  *
  * ห้าม hardcode localhost/IP — อ่าน API base จาก window.LUMA_CONFIG เท่านั้น
  */
 
-const API_BASE = window.LUMA_CONFIG ? window.LUMA_CONFIG.apiBase : "";
+(() => {
+  const API_BASE = window.LUMA_CONFIG ? window.LUMA_CONFIG.apiBase : "";
 
-function initLoginForm() {
-  const form = document.getElementById("login-form");
-  if (!form) return;
+  function initLogin() {
+    const form = document.getElementById("login-form");
+    if (!form) return;
 
-  const errorBox = document.getElementById("login-error");
-  const submitBtn = document.getElementById("login-submit");
+    const errorBox = document.getElementById("login-error");
+    const successBox = document.getElementById("login-success");
+    const submitBtn = document.getElementById("login-submit");
 
-  form.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    hideError();
-
-    const email = form.email.value.trim();
-    const password = form.password.value;
-
-    if (!email || !password) {
-      showError("กรอกอีเมลและรหัสผ่านให้ครบ");
-      return;
+    // ตรวจสอบว่าเพิ่งสมัครสมาชิกสำเร็จมาหรือไม่
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("registered") === "true" && successBox) {
+      successBox.textContent = "สมัครสมาชิกสำเร็จเรียบร้อย! กรุณาเข้าสู่ระบบด้วยอีเมลและรหัสผ่านของคุณ";
+      successBox.removeAttribute("hidden");
     }
 
-    setLoading(true);
-    try {
-      // TODO(#50): สลับเป็น fetch จริงตอน backend รันได้แล้ว เช่น
-      //
-      // const res = await fetch(`${API_BASE}/api/login`, {
-      //   method: "POST",
-      //   headers: { "Content-Type": "application/json" },
-      //   body: JSON.stringify({ email, password }),
-      // });
-      // const data = await res.json();
-      // if (!res.ok) throw new Error(data.message || "เข้าสู่ระบบไม่สำเร็จ");
+    function showError(msg) {
+      if (errorBox) {
+        errorBox.textContent = msg;
+        errorBox.removeAttribute("hidden");
+      }
+      if (successBox) successBox.setAttribute("hidden", "");
+    }
 
-      const result = await window.LUMA_MOCK_AUTH.mockLogin({
-        email,
-        password,
-      });
-      if (!result.ok) {
-        showError(result.data.message);
+    function hideMessages() {
+      if (errorBox) errorBox.setAttribute("hidden", "");
+      if (successBox) successBox.setAttribute("hidden", "");
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      hideMessages();
+
+      const email = form.email ? form.email.value.trim() : "";
+      const password = form.password ? form.password.value : "";
+
+      if (!email || !password) {
+        showError("กรุณากรอกอีเมลและรหัสผ่าน");
         return;
       }
 
-      // จำลอง session ไว้ใน sessionStorage เพื่อทดสอบ flow "จำว่าล็อกอินอยู่"
-      // (ของปลอม — backend จริงจะใช้ cookie/session ฝั่งเซิร์ฟเวอร์แทน)
-      sessionStorage.setItem("luma_mock_session", JSON.stringify(result.data));
-      window.location.href = "index.html";
-    } catch (err) {
-      showError(err.message || "เกิดข้อผิดพลาด ลองใหม่อีกครั้ง");
-    } finally {
-      setLoading(false);
-    }
-  });
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = "กำลังเข้าสู่ระบบ…";
+      }
 
-  function showError(message) {
-    // ใช้ textContent เสมอ ไม่ใช้ innerHTML เพราะข้อความ error
-    // อาจสะท้อนกลับมาจาก backend ในอนาคต ป้องกัน stored/reflected XSS
-    errorBox.textContent = message;
-    errorBox.removeAttribute("hidden");
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/login`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "include",
+          body: JSON.stringify({
+            email,
+            password,
+          }),
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          throw new Error(data.error || `เข้าสู่ระบบไม่สำเร็จ (HTTP ${res.status})`);
+        }
+
+        localStorage.setItem("luma_user_email", email);
+
+        if (successBox) {
+          successBox.textContent = "เข้าสู่ระบบสำเร็จ! กำลังนำท่านเข้าสู่ระบบ…";
+          successBox.removeAttribute("hidden");
+        }
+
+        setTimeout(() => {
+          window.location.href = "generate.html";
+        }, 1000);
+      } catch (err) {
+        console.error("Login error:", err);
+        showError(err.message || "เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์");
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = "เข้าสู่ระบบ";
+        }
+      }
+    });
   }
 
-  function hideError() {
-    errorBox.textContent = "";
-    errorBox.setAttribute("hidden", "");
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initLogin);
+  } else {
+    initLogin();
   }
-
-  function setLoading(isLoading) {
-    submitBtn.disabled = isLoading;
-    submitBtn.textContent = isLoading ? "กำลังเข้าสู่ระบบ…" : "เข้าสู่ระบบ";
-  }
-}
-
-document.addEventListener("DOMContentLoaded", initLoginForm);
+})();
