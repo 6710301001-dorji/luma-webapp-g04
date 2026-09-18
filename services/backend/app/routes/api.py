@@ -5,7 +5,7 @@ Endpoint สร้างภาพ AI (Issue #22) + คลังผลงาน (
 
 import os
 
-from flask import Blueprint, current_app, jsonify, request, send_file
+from flask import Blueprint, current_app, jsonify, request, send_file, session
 from app.models import db, Asset
 from app.services.forge_client import generate_image, ForgeClientError
 
@@ -98,23 +98,31 @@ def handle_generate():
 def list_assets():
     """GET /api/assets — รายการผลงาน เรียงใหม่->เก่า รองรับค้นหา+แบ่งหน้า (docs/API_CONTRACT.md ข้อ 2)
 
-    ยังไม่กรองตามเจ้าของ (asset.user_id) — POST /api/generate ยังไม่ผูก asset
+    บังคับ login แล้ว (session["user_id"] ต้องมี ไม่งั้น 401) — รีวิว PR #99 ข้อ 1
+    แต่ยังไม่กรองตามเจ้าของ (asset.user_id) — POST /api/generate ยังไม่ผูก asset
     กับผู้ใช้ที่ login อยู่ (ดู #96: user_id เป็น nullable ไว้ก่อนตั้งใจ รอ auth)
-    ตอนนี้ auth จริงมาแล้ว (#91) แต่ /api/generate ยังไม่อัปเดตให้ set user_id
-    เป็นงานต่อเนื่องที่ต้องทำก่อนเปิด ownership check ตรงนี้ ไม่งั้น asset
+    เป็นงานต่อเนื่องที่ต้องทำก่อนเปิด ownership filter ตรงนี้ ไม่งั้น asset
     เก่าทั้งหมด (user_id เป็น NULL) จะหายไปจากทุกคนทันที
     """
+    if "user_id" not in session:
+        return jsonify({"error": "ยังไม่ได้เข้าสู่ระบบ / Unauthorized"}), 401
+
     page = request.args.get("page", 1, type=int)
     per_page = request.args.get("per_page", 20, type=int)
     q = request.args.get("q", "", type=str).strip()
 
     query = Asset.query
     if q:
-        query = query.filter(Asset.prompt.ilike(f"%{q}%"))
+        # autoescape=True กัน % และ _ ใน q ทำตัวเป็น SQL wildcard เอง
+        # (ไม่งั้น q="long_hair" จะ match "longXhair" ด้วย เพราะ _ = ตัวอะไรก็ได้ 1 ตัว)
+        query = query.filter(Asset.prompt.icontains(q, autoescape=True))
 
-    query = query.order_by(Asset.created_at.desc())
+    # tiebreaker ด้วย id — created_at อย่างเดียวชนกันได้ถึงระดับไมโครวินาที
+    # เมื่อสร้างหลายแถวพร้อมกัน ทำให้ลำดับไม่คงที่ข้ามหน้า
+    query = query.order_by(Asset.created_at.desc(), Asset.id.desc())
 
-    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+    # max_per_page กัน ?per_page=1000000 ดึงทั้งตารางออกมาทีเดียว
+    pagination = query.paginate(page=page, per_page=per_page, max_per_page=100, error_out=False)
     items = [item.to_dict() for item in pagination.items]
 
     return jsonify({
@@ -129,9 +137,14 @@ def list_assets():
 def get_asset_image(asset_id: int):
     """GET /api/assets/<asset_id>/image — เสิร์ฟไฟล์ภาพจริง (docs/API_CONTRACT.md ข้อ 2)
 
+    บังคับ login แล้ว (session["user_id"] ต้องมี ไม่งั้น 401) — รีวิว PR #99 ข้อ 1
     ⚠️ ownership check ("ต้องล็อกอิน + เป็นเจ้าของ ไม่งั้น 404" ตาม API_CONTRACT.md)
-    ยังไม่เปิดใช้ด้วยเหตุผลเดียวกับ list_assets() ด้านบน — asset เก่าไม่มีเจ้าของ
+    ยังเปิดแค่ครึ่งเดียว (login) — กรองตามเจ้าของยังรอ /api/generate set user_id
+    ก่อน เหตุผลเดียวกับ list_assets() ด้านบน
     """
+    if "user_id" not in session:
+        return jsonify({"error": "ยังไม่ได้เข้าสู่ระบบ / Unauthorized"}), 401
+
     asset = db.session.get(Asset, asset_id)
     if asset is None:
         return jsonify({"error": "ไม่พบภาพที่ระบุ / Asset not found"}), 404

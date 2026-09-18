@@ -5,6 +5,7 @@ test_assets.py — ทดสอบ GET /api/assets และ GET /api/assets/<id
 
 import sys
 import os
+from datetime import datetime, timedelta, timezone
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if BASE_DIR not in sys.path:
@@ -13,12 +14,52 @@ if BASE_DIR not in sys.path:
 from app.models import db, Asset
 
 
+def _login(client):
+    """สมัคร + login user ชั่วคราว ให้ client มี session ที่ login อยู่
+
+    จำเป็นเพราะ /api/assets และ /api/assets/<id>/image บังคับล็อกอินแล้ว
+    (รีวิว PR #99 ข้อ 1 — เดิมเปิดให้ทุกคนดูได้โดยไม่ต้อง login = IDOR)
+    """
+    client.post("/api/auth/register", json={
+        "email": "assets-test@luma.ai",  # no-secret-check
+        "displayName": "AssetsTester",
+        "password": "password123",
+    })
+    res = client.post("/api/auth/login", json={
+        "email": "assets-test@luma.ai",  # no-secret-check
+        "password": "password123",
+    })
+    assert res.status_code == 200, "setup ล้มเหลว: login ไม่ผ่าน"
+
+
+def test_list_assets_requires_login(client):
+    """[กรณีทดสอบ]: ยังไม่ login เรียก GET /api/assets ต้องได้ 401 ไม่ใช่ 200 (รีวิว PR #99 ข้อ 1)"""
+    response = client.get("/api/assets")
+    assert response.status_code == 401
+
+
+def test_get_asset_image_requires_login(client, app):
+    """[กรณีทดสอบ]: ยังไม่ login เรียก GET /api/assets/<id>/image ต้องได้ 401 ไม่ใช่ตัวภาพ (รีวิว PR #99 ข้อ 1)"""
+    with app.app_context():
+        asset = Asset(prompt="ภาพของคนอื่น", file_path="p1.png")
+        db.session.add(asset)
+        db.session.commit()
+        asset_id = asset.id
+
+    response = client.get(f"/api/assets/{asset_id}/image")
+    assert response.status_code == 401
+
+
 def test_list_assets_ordered_by_newest(client, app):
     """[กรณีทดสอบ]: ดึงรายการภาพทั้งหมด ภาพที่สร้างล่าสุดต้องอยู่บนสุด"""
+    _login(client)
     with app.app_context():
-        a1 = Asset(prompt="Oldest image", file_path="p1.png")
-        a2 = Asset(prompt="Middle image", file_path="p2.png")
-        a3 = Asset(prompt="Newest image", file_path="p3.png")
+        # created_at ต้องต่างกันชัดเจน ไม่งั้นแถวที่ add_all พร้อมกันจะได้เวลาเท่ากัน
+        # จนไม่ได้ทดสอบการเรียงจริง (รีวิว PR #99 ข้อ 3)
+        base = datetime.now(timezone.utc)
+        a1 = Asset(prompt="Oldest image", file_path="p1.png", created_at=base)
+        a2 = Asset(prompt="Middle image", file_path="p2.png", created_at=base + timedelta(seconds=1))
+        a3 = Asset(prompt="Newest image", file_path="p3.png", created_at=base + timedelta(seconds=2))
         db.session.add_all([a1, a2, a3])
         db.session.commit()
 
@@ -31,6 +72,7 @@ def test_list_assets_ordered_by_newest(client, app):
 
 def test_assets_pagination(client, app):
     """[กรณีทดสอบ]: แบ่งหน้าแสดงผล เช่น มี 5 ภาพ ขอหน้าละ 2 ภาพ"""
+    _login(client)
     with app.app_context():
         for i in range(1, 6):
             db.session.add(Asset(prompt=f"Image #{i}", file_path=f"p{i}.png"))
@@ -45,8 +87,23 @@ def test_assets_pagination(client, app):
     assert data["per_page"] == 2
 
 
+def test_assets_per_page_is_capped(client, app):
+    """[กรณีทดสอบ]: per_page ใหญ่เกินไปต้องถูกจำกัดเพดาน ไม่ดึงทั้งตารางออกมาทีเดียว (รีวิว PR #99 ข้อ 5)"""
+    _login(client)
+    with app.app_context():
+        for i in range(1, 6):
+            db.session.add(Asset(prompt=f"Image #{i}", file_path=f"p{i}.png"))
+        db.session.commit()
+
+    response = client.get("/api/assets?per_page=1000000")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["per_page"] <= 100, f"per_page ต้องถูกจำกัดไม่เกิน 100 แต่ได้ {data['per_page']}"
+
+
 def test_search_assets_by_prompt_query(client, app):
     """[กรณีทดสอบ]: ค้นหาภาพที่มีคำว่า 'sakura' อยู่ใน Prompt (?q=...)"""
+    _login(client)
     with app.app_context():
         a1 = Asset(prompt="1girl walking under sakura tree", file_path="sakura.png")
         a2 = Asset(prompt="robot in cyberpunk city", file_path="robot.png")
@@ -60,6 +117,28 @@ def test_search_assets_by_prompt_query(client, app):
     assert data["items"][0]["prompt"] == "1girl walking under sakura tree"
 
 
+def test_search_assets_escapes_wildcard_characters(client, app):
+    """[กรณีทดสอบ]: q ที่มี % หรือ _ ต้องถูก escape ไม่กลายเป็น SQL wildcard (รีวิว PR #99 ข้อ 5)
+
+    prompt ของ Stable Diffusion ใช้ '_' บ่อย (เช่น long_hair) — ถ้าไม่ escape
+    '_' จะ match ตัวอักษรอะไรก็ได้ 1 ตัว ทำให้ค้นหา 'long_hair' เจอ 'longXhair' ไปด้วย
+    """
+    _login(client)
+    with app.app_context():
+        a1 = Asset(prompt="long_hair, 1girl", file_path="p1.png")
+        a2 = Asset(prompt="longXhair, 1girl", file_path="p2.png")
+        db.session.add_all([a1, a2])
+        db.session.commit()
+
+    response = client.get("/api/assets?q=long_hair")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["total"] == 1, (
+        f"'_' ใน q ต้องถูก escape ไม่ให้ match ตัวอักษรใดก็ได้ แต่ได้ total={data['total']}"
+    )
+    assert data["items"][0]["prompt"] == "long_hair, 1girl"
+
+
 def test_list_assets_empty_returns_empty_items():
     """[กรณีทดสอบ]: ยังไม่มี asset เลย ต้องได้ items ว่าง ไม่ error"""
     from app import create_app
@@ -69,6 +148,7 @@ def test_list_assets_empty_returns_empty_items():
         db.create_all()
 
     client = app.test_client()
+    _login(client)
     response = client.get("/api/assets")
     assert response.status_code == 200
     data = response.get_json()
@@ -78,12 +158,14 @@ def test_list_assets_empty_returns_empty_items():
 
 def test_get_asset_image_not_found_returns_404(client):
     """[กรณีทดสอบ]: ขอภาพที่ไม่มีอยู่จริง ต้องได้ 404 ไม่ใช่ 500"""
+    _login(client)
     response = client.get("/api/assets/999/image")
     assert response.status_code == 404
 
 
 def test_get_asset_image_missing_file_on_disk_returns_404(client, app):
     """[กรณีทดสอบ]: มีแถวใน DB แต่ไฟล์บนดิสก์หาย ต้องได้ 404 พร้อมข้อความชัด ไม่ใช่ 500"""
+    _login(client)
     with app.app_context():
         asset = Asset(prompt="ไฟล์หาย", file_path="uploads/generated/does-not-exist.png")
         db.session.add(asset)
@@ -100,21 +182,44 @@ def test_get_asset_image_missing_file_on_disk_returns_404(client, app):
 if __name__ == "__main__":
     from app import create_app
 
+    def _fresh_client():
+        """สร้าง app + client ใหม่พร้อม DB ในหน่วยความจำแยกของตัวเอง
+
+        เดิมตัวรันตรงนี้ใช้ app/client ตัวเดียวกันทุกเทส ทำให้ข้อมูลจากเทสก่อนหน้า
+        ตกค้างข้ามไปเทสถัดไป (pytest ผ่านเพราะ fixture แยก DB ให้ แต่รันไฟล์นี้ตรงๆ
+        ได้ total=8 แทนที่จะเป็น 5) — รีวิว PR #99 ข้อ 4
+        """
+        fresh_app = create_app({"TESTING": True, "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:"})
+        with fresh_app.app_context():
+            db.create_all()
+        return fresh_app, fresh_app.test_client()
+
     print("\n" + "=" * 60)
     print("🔍 กำลังทดสอบไฟล์: test_assets.py (คลังภาพและการค้นหา)")
     print("=" * 60)
 
-    app = create_app({"TESTING": True, "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:"})
-    client = app.test_client()
+    def _run_ordered():
+        a, c = _fresh_client()
+        test_list_assets_ordered_by_newest(client=c, app=a)
 
-    with app.app_context():
-        db.create_all()
+    def _run_pagination():
+        a, c = _fresh_client()
+        test_assets_pagination(client=c, app=a)
+
+    def _run_search():
+        a, c = _fresh_client()
+        test_search_assets_by_prompt_query(client=c, app=a)
+
+    def _run_not_found():
+        a, c = _fresh_client()
+        _login(c)
+        test_get_asset_image_not_found_returns_404(client=c)
 
     tests = [
-        ("เรียงลำดับภาพจากใหม่สุดไปเก่าสุด", lambda: test_list_assets_ordered_by_newest(client=client, app=app)),
-        ("การแบ่งหน้าแสดงผล (Pagination)", lambda: test_assets_pagination(client=client, app=app)),
-        ("การค้นหาภาพด้วยคำใน Prompt (?q=...)", lambda: test_search_assets_by_prompt_query(client=client, app=app)),
-        ("ขอภาพที่ไม่มีอยู่จริง ต้องได้ 404", lambda: test_get_asset_image_not_found_returns_404(client=client)),
+        ("เรียงลำดับภาพจากใหม่สุดไปเก่าสุด", _run_ordered),
+        ("การแบ่งหน้าแสดงผล (Pagination)", _run_pagination),
+        ("การค้นหาภาพด้วยคำใน Prompt (?q=...)", _run_search),
+        ("ขอภาพที่ไม่มีอยู่จริง ต้องได้ 404", _run_not_found),
     ]
 
     passed = 0
