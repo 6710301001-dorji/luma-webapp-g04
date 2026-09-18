@@ -89,7 +89,7 @@ jobs     id · user_id→users · prompt · status · result_asset_id→assets �
 - [ ] index บนคอลัมน์ที่ใช้ query บ่อย: `assets.user_id`, `assets.created_at`
 - [ ] แยกตาราง `tags` + `asset_tags` (ดูข้างบน)
 - [ ] `datetime.now(datetime.UTC)` แทน `datetime.utcnow()` ที่ deprecated
-- [ ] สคริปต์ backup + คู่มือ restore
+- [x] สคริปต์ backup + คู่มือ restore → [`backup/db_backup.py`](backup/db_backup.py) (วิธีใช้อยู่หัวไฟล์)
 - [ ] ข้อมูล seed สำหรับ demo
 
 ## Query ที่จะต้องเขียน (ใช้ cheat sheet ของอาจารย์)
