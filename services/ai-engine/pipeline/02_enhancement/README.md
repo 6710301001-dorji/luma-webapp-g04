@@ -58,6 +58,26 @@ contrast = (Imax − Imin) / (Imax + Imin)
 
 ### Linear filter
 
+`spatial_filters.py` implements `box`, `gaussian`, and `median` for `uint8`
+grayscale or BGR images. It preserves image dimensions and pads borders by
+reflection for the linear filters and replication for median (OpenCV behavior).
+`gaussian_kernel`, `filter_2d`, `filter_separable`, and
+`benchmark_separability` demonstrate Gaussian separability. The benchmark
+returns both measured runtimes, their ratio, and the maximum pixel difference.
+
+Example measurement on an Apple M2, 1024×1024 random grayscale image, 15×15
+Gaussian kernel, 10 timed runs per method (median runtime): full 2D **23.26 ms**,
+two 1D passes **0.97 ms**, **24.08× faster**, maximum float pixel difference
+**0.000077**. Runtime varies by machine and image size. Reproduce with:
+
+```python
+import numpy as np
+from spatial_filters import benchmark_separability
+
+image = np.random.default_rng(2026).integers(0, 256, (1024, 1024), dtype=np.uint8)
+print(benchmark_separability(image, size=15, repeats=10))
+```
+
 | filter | หน้า | หมายเหตุ |
 |---|---|---|
 | **Box / Average** | 17–19 | ผลรวมสัมประสิทธิ์ = 1 · `cv.filter2D`, `ddepth=-1` = ชนิดเดิม |
