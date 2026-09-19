@@ -35,6 +35,10 @@ def generate_image(payload, forge_base_url, timeout=120):
         if isinstance(info, dict):
             seed = info.get("seed")
     if seed is None:
+        if payload["seed"] == -1:
+            raise ForgeError("Forge response did not report the generated seed")
         seed = payload["seed"]
+    if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
+        raise ForgeError("Forge response has an invalid seed")
 
     return {"images": [result["images"][0]], "seed_used": seed}

@@ -62,3 +62,59 @@ def test_missing_forge_url_is_reported_before_call(monkeypatch):
         "/forge/txt2img", json={"prompt": "a tree"}
     )
     assert response.status_code == 503
+
+
+def test_explicit_parameters_are_forwarded(monkeypatch):
+    sent = {}
+
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"images": ["image-base64"], "info": json.dumps({"seed": 123})}
+
+    def post(url, json, timeout):
+        sent.update(json)
+        return Response()
+
+    monkeypatch.setattr(requests, "post", post)
+    body = {"prompt": "(tree:1.2)", "negative_prompt": "blur", "steps": 30,
+            "cfg_scale": 7.5, "sampler_name": "Euler a", "seed": 123,
+            "width": 768, "height": 512}
+    response = create_app({"TESTING": True, "FORGE_URL": "http://forge-host:7860"}).test_client().post(
+        "/forge/txt2img", json=body
+    )
+    assert response.status_code == 200
+    assert sent == body
+
+
+@pytest.mark.parametrize("result", [
+    {"images": ["image-base64"]},
+    {"images": [], "seed_used": 123},
+    {"images": ["image-base64"], "seed_used": -1},
+])
+def test_unusable_forge_response_is_bad_gateway(monkeypatch, result):
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return result
+
+    monkeypatch.setattr(requests, "post", lambda *a, **kw: Response())
+    response = create_app({"TESTING": True, "FORGE_URL": "http://forge-host:7860"}).test_client().post(
+        "/forge/txt2img", json={"prompt": "a tree"}
+    )
+    assert response.status_code == 502
+
+
+def test_unreachable_forge_is_bad_gateway(monkeypatch):
+    def disconnected(*args, **kwargs):
+        raise requests.ConnectionError("Forge is offline")
+
+    monkeypatch.setattr(requests, "post", disconnected)
+    response = create_app({"TESTING": True, "FORGE_URL": "http://forge-host:7860"}).test_client().post(
+        "/forge/txt2img", json={"prompt": "a tree"}
+    )
+    assert response.status_code == 502

@@ -43,6 +43,8 @@ def create_app(config=None):
         for name in ("steps", "seed", "width", "height"):
             if isinstance(payload[name], bool) or not isinstance(payload[name], int):
                 return jsonify({"error": f"{name} must be an integer"}), 400
+        if payload["seed"] < -1:
+            return jsonify({"error": "seed must be -1 or nonnegative"}), 400
         if not 1 <= payload["steps"] <= 50 or payload["width"] not in (512, 768, 1024) or payload["height"] not in (512, 768, 1024):
             return jsonify({"error": "steps or image size is out of range"}), 400
         if isinstance(payload["cfg_scale"], bool) or not isinstance(payload["cfg_scale"], (int, float)) or not 1 <= payload["cfg_scale"] <= 30:
