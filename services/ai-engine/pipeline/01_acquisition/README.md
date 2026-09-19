@@ -1,5 +1,26 @@
 # 01_acquisition — การเก็บข้อมูลภาพ (Image Acquisition)
 
+## Implemented utilities
+
+`acquisition.py` provides `validate_image_file(path)` with a reason for rejection,
+`load(path)` returning a BGR NumPy array or `None`, `image_metadata(array)`,
+`read_exif(path)`, `field_of_view(sensor_width_mm, focal_length_mm, distance_m)`,
+and `normalize_width(array, width=512)`. JPEG, PNG, WebP, and TIFF are accepted;
+the default file limit is 16 MiB and the maximum aspect ratio is 10:1.
+
+The horizontal sensor width is usually not available in EXIF, so pass a measured
+sensor width to `field_of_view` instead of guessing it. For example, a 35 mm
+sensor and 50 mm focal length at 5 m give a scene width of 3.5 m.
+
+The sample input at `../../samples/input/acquisition_before.png` is normalized
+to the ignored file `../../samples/output/acquisition_normalized.png` by running
+`python services/ai-engine/pipeline/01_acquisition/generate_sample.py`.
+Run the checks with
+`python -m pytest services/ai-engine/tests/test_acquisition.py -q` from the
+repository root. Distortion calibration and dead/stuck pixel detection need
+camera calibration images or repeated flat-field frames; those checks are not
+part of this first implementation.
+
 👤 คนที่ 3 — AI + Image Processing Engine · **ส่วนย่อยที่ 1/5** ตามเกณฑ์อาจารย์ (Lecture 1 หน้า 6)
 
 ## หน้าที่
