@@ -31,6 +31,13 @@
 - **contrast** = `(Imax−Imin)/(Imax+Imin)` (หน้า 20)
 
 ### จากสี (Lecture 5 หน้า 37–62)
+
+`color_palette.py` now provides `extract_palette(image)` for a `uint8` BGR
+image. It returns up to five CSS hex colors with proportions summing to 1,
+sorted from most to least common. Solid or two-color images return only their
+actual distinct colors. More complex images use median-cut color quantization.
+This extractor works in RGB after OpenCV BGR conversion, so it does not depend
+on OpenCV's 0–179 hue scale.
 - histogram ของ hue → **สีเด่นของภาพ** → ใช้ทำ **Color Palette** ใน Smart Canvas ได้ตรงๆ
 - สัดส่วนพิกเซลที่มีสีจริง (sat/val เกินเกณฑ์) เทียบกับพิกเซลกลาง
 - ค่าเฉลี่ย saturation / value
