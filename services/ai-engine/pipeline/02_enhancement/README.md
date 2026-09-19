@@ -47,6 +47,14 @@ contrast = (Imax − Imin) / (Imax + Imin)
 | **Histogram Equalization** | mapping จาก cumulative histogram → เส้นตรง | 36–42 | ภาพ low contrast · `cv.equalizeHist()` |
 | **Histogram Specification** | equalize แล้ว inverse-equalize ไปหา histogram เป้าหมาย | 44–50 | อยากให้ภาพ A มีโทนเหมือนภาพ B |
 
+`histogram_mapping.py` implements `equalize(image)` and
+`match_histogram(image, reference)` for `uint8` grayscale or BGR images.
+For color images, both functions change only HSV value before converting back
+to BGR, preserving hue as closely as 8-bit conversion permits. Matching uses
+the reference image's cumulative intensity distribution; the reference can have
+a different size from the input. These image functions are independent of the
+HTTP pipeline route, which still needs the team's agreed API contract.
+
 > **หน้า 10 ตั้งคำถามไว้**: ถ้าไม่แปลงกลับเป็น `uint8` จะเกิดอะไรขึ้น? ถ้า dtype เป็น float ทำงานได้ไหม?
 > → ต้อง clamp ค่าให้อยู่ใน 0–255 และแปลง dtype กลับเสมอ ไม่งั้นค่าล้น
 
