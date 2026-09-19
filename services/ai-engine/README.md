@@ -7,7 +7,7 @@ For local development, `python tools/mock_forge_server.py` can stand in for Forg
 Then start this service in a second terminal:
 
 ```bash
-python services/ai-engine/app.py
+FORGE_URL=http://127.0.0.1:7860 python services/ai-engine/app.py
 ```
 
 The LUMA backend calls `POST http://127.0.0.1:8000/forge/txt2img` with JSON such as
@@ -15,7 +15,7 @@ The LUMA backend calls `POST http://127.0.0.1:8000/forge/txt2img` with JSON such
 `/sdapi/v1/txt2img` endpoint and returns `{"images":["<base64>"],"seed_used":123}`.
 The backend stores the image; this service does not return a local file path.
 
-When Forge runs on another computer, set `FORGE_BASE_URL` to its reachable address
+When Forge runs on another computer, set `FORGE_URL` to its reachable address
 (for example, `http://192.168.1.30:7860`) before starting this service. `localhost`
 always refers to the computer running this service. Set `AI_ENGINE_HOST=0.0.0.0`
 when the backend must connect from another computer; the service listens on port

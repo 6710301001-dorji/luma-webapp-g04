@@ -11,7 +11,7 @@ from forge.client import ForgeError, generate_image
 def create_app(config=None):
     app = Flask(__name__)
     app.config.update(
-        FORGE_BASE_URL=os.environ.get("FORGE_BASE_URL", "http://127.0.0.1:7860"),
+        FORGE_URL=os.environ.get("FORGE_URL"),
         FORGE_TIMEOUT_SECONDS=120,
     )
     if config:
@@ -50,9 +50,13 @@ def create_app(config=None):
         if not isinstance(payload["negative_prompt"], str) or not isinstance(payload["sampler_name"], str):
             return jsonify({"error": "negative_prompt and sampler_name must be strings"}), 400
 
+        forge_url = app.config["FORGE_URL"]
+        if not forge_url:
+            return jsonify({"error": "FORGE_URL is not configured"}), 503
+
         try:
             result = generate_image(
-                payload, app.config["FORGE_BASE_URL"], app.config["FORGE_TIMEOUT_SECONDS"]
+                payload, forge_url, app.config["FORGE_TIMEOUT_SECONDS"]
             )
         except ForgeError as exc:
             cause = exc.__cause__
