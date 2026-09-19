@@ -67,7 +67,32 @@ def test_list_assets_ordered_by_newest(client, app):
     assert response.status_code == 200, f"ดึงภาพไม่สำเร็จ ได้ {response.status_code}"
     data = response.get_json()
     assert data["total"] == 3, f"จำนวนภาพต้องมี 3 แต่ได้ {data['total']}"
-    assert data["items"][0]["prompt"] == "Newest image", "ภาพล่าสุดต้องอยู่เป็นอันดับแรก"
+    # เช็คลำดับทั้งชุด ไม่ใช่แค่ตัวแรก — ไม่งั้น [Newest, Oldest, Middle] ก็หลุดผ่านได้
+    # (รีวิว PR #99 รอบ 2)
+    prompts = [item["prompt"] for item in data["items"]]
+    assert prompts == ["Newest image", "Middle image", "Oldest image"], (
+        f"ลำดับต้องเป็นใหม่->เก่าทั้งชุด แต่ได้ {prompts}"
+    )
+
+
+def test_list_assets_tiebreaker_uses_id_when_created_at_equal(client, app):
+    """[กรณีทดสอบ]: created_at เท่ากันทุกแถว ต้องเรียงด้วย id มาก->น้อยเป็นตัวตัดสิน (รีวิว PR #99 รอบ 2, api.py:122)"""
+    _login(client)
+    with app.app_context():
+        same_time = datetime.now(timezone.utc)
+        a1 = Asset(prompt="First inserted", file_path="p1.png", created_at=same_time)
+        a2 = Asset(prompt="Second inserted", file_path="p2.png", created_at=same_time)
+        a3 = Asset(prompt="Third inserted", file_path="p3.png", created_at=same_time)
+        db.session.add_all([a1, a2, a3])
+        db.session.commit()
+
+    response = client.get("/api/assets")
+    assert response.status_code == 200
+    data = response.get_json()
+    prompts = [item["prompt"] for item in data["items"]]
+    assert prompts == ["Third inserted", "Second inserted", "First inserted"], (
+        f"created_at เท่ากันหมด ต้องใช้ id มากก่อนเป็น tiebreaker แต่ได้ {prompts}"
+    )
 
 
 def test_assets_pagination(client, app):
