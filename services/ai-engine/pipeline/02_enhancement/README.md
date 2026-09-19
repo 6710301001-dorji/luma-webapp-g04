@@ -36,6 +36,14 @@ contrast = (Imax − Imin) / (Imax + Imin)
 
 ## B. Enhancement — Point Operation (Lecture 4)
 
+Implemented in `point_operations.py`: `gamma(image, value)`, `log_transform(image)`,
+and `contrast_stretch(image)`. Each accepts a nonempty 2D grayscale or 3D color
+NumPy `uint8` array and returns a new `uint8` array of the same shape. Gamma
+values below 1 brighten the image; 1 returns identical pixel values. Contrast
+stretching maps the global minimum and maximum to 0 and 255; a constant image
+is returned unchanged because it has no range to stretch. These are pure image
+operations; the HTTP pipeline route is still to be wired to the team contract.
+
 `g(x,y) = T[f(x,y)]` — พิกเซลใหม่ขึ้นกับพิกเซลเดิมตำแหน่งเดียวกันเท่านั้น
 
 | เทคนิค | สูตร | หน้า | ใช้เมื่อ |
