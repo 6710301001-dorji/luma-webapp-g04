@@ -39,6 +39,13 @@
 > ช่วง hue ทีละ 30° เพื่อหา 3 ช่วงที่มีพิกเซลมากที่สุดไว้แล้ว → **นั่นคือ color palette extractor**
 
 ### จากรูปร่าง (ต่อจาก contour ใน 03)
+
+`shape_sharpness.py` implements `contour_features(contour)` for area, perimeter,
+bounding-box aspect ratio, and circularity. It simplifies pixel staircase
+artifacts before measuring geometry. `sharpness(image)` measures Fourier power
+above a configurable spatial-frequency cutoff (default 0.25 cycles per pixel).
+The score is relative: compare images with the same dimensions and intensity
+scale; a Gaussian-blurred copy should score lower than its sharp original.
 - พื้นที่, เส้นรอบรูป, aspect ratio ของ bounding box
 - ความกลม `4π·area/perimeter²`
 - จำนวนวัตถุที่นับได้
