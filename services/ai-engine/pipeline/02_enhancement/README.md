@@ -1,5 +1,23 @@
 # 02_enhancement — ตรวจสอบและปรับปรุงคุณภาพภาพ
 
+## Implemented quality assessment (task #52)
+
+`histogram.py` accepts `uint8` grayscale or BGR NumPy arrays. It calculates
+256-bin histograms and the four population statistics (mean, variance,
+skewness, excess kurtosis) per channel. A constant image has zero skewness
+and kurtosis by convention instead of undefined values.
+
+`assess_quality(image)` uses grayscale mean to flag dark (<64) and bright
+(>192) images, and the 5th-95th percentile span to flag low contrast (<64).
+These are starting thresholds; they can be tuned after evaluating real images.
+`save_histogram_plot(image, path)` writes a plot with a headless Matplotlib
+backend. Generate a sample image and its plot with
+`python services/ai-engine/pipeline/02_enhancement/generate_histogram_sample.py`.
+The plot is written to the ignored `samples/output/` directory.
+
+Run `python -m pytest services/ai-engine/tests/test_histogram.py -q` from the
+repository root to check the known-value examples in task #52.
+
 👤 คนที่ 3 — AI + Image Processing Engine · **ส่วนย่อยที่ 2/5** ตามเกณฑ์อาจารย์ (Lecture 1 หน้า 6)
 
 ## หน้าที่ 2 อย่าง
