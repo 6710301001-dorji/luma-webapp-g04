@@ -1,5 +1,27 @@
 # ai-engine/ — Forge AI + Image Processing Pipeline
 
+## Run the txt2img bridge
+
+From the repository root, activate `.venv` and start Forge with its API enabled.
+For local development, `python tools/mock_forge_server.py` can stand in for Forge.
+Then start this service in a second terminal:
+
+```bash
+python services/ai-engine/app.py
+```
+
+The LUMA backend calls `POST http://127.0.0.1:8000/forge/txt2img` with JSON such as
+`{"prompt":"a tree","seed":123}`. This service calls Forge's
+`/sdapi/v1/txt2img` endpoint and returns `{"images":["<base64>"],"seed_used":123}`.
+The backend stores the image; this service does not return a local file path.
+
+When Forge runs on another computer, set `FORGE_BASE_URL` to its reachable address
+(for example, `http://192.168.1.30:7860`) before starting this service. `localhost`
+always refers to the computer running this service. Set `AI_ENGINE_HOST=0.0.0.0`
+when the backend must connect from another computer; the service listens on port
+8000 by default. For local tests, run
+`python -m pytest services/ai-engine/tests -q`.
+
 👤 คนที่ 3 — AI + Image Processing Engine
 **เครื่อง**: 192.168.1.30 (ตัวอย่าง) · เครื่องที่มี GPU
 
