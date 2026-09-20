@@ -4,6 +4,7 @@ Application Factory `create_app()`
 Issue #46 — create_app() + ระบบจัดการ Config อย่างปลอดภัย
 Issue #47 — Blueprint Modular Architecture & JSON Error Handlers
 Issue #48 — ระบบ Logging สะอาด ไม่พิมพ์ซ้ำซ้อน
+Issue #51 — OWASP Security Headers, Cookie Hardening & Rate Limiting
 """
 
 import os
@@ -43,6 +44,7 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     - รองรับ config_overrides สำหรับการรันแบบทดสอบ
     - ตั้งค่าระบบ Logging สะอาดไม่ซ้อน (Issue #48)
     - ลงทะเบียน Blueprint และ JSON Error Handlers (Issue #47)
+    - แนบ Security Headers (OWASP) และ Cookie Hardening ในทุก Response (Issue #51)
     """
     backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     instance_path = os.path.join(backend_dir, "instance")
@@ -60,6 +62,8 @@ def create_app(config_overrides: dict | None = None) -> Flask:
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
         AI_ENGINE_URL="http://127.0.0.1:7860",
         FORGE_TIMEOUT_SECONDS=120,
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE="Lax",
     )
 
     # 2. โหลดค่าคอนฟิกจาก instance/config.py (ถ้ามี)
@@ -87,6 +91,23 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     migrate = Migrate(app, db, directory=migrations_dir)
 
     # ==========================================================================
+    # Security Headers (OWASP) แนบในทุก Response (Issue #51)
+    # ==========================================================================
+    @app.after_request
+    def set_security_headers(response):
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "img-src 'self' data: http: https:; "
+            "script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline';"
+        )
+        return response
+
+    # ==========================================================================
     # ลงทะเบียน JSON Error Handlers (Issue #47)
     # ==========================================================================
     @app.errorhandler(400)
@@ -105,6 +126,10 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     @app.errorhandler(404)
     def not_found(error):
         return jsonify({"error": "ไม่พบหน้าที่ระบุ / Not found"}), 404
+
+    @app.errorhandler(429)
+    def ratelimit_handler(error):
+        return jsonify({"error": "คำขอถี่เกินกำหนด กรุณารอสักครู่ / Too many requests"}), 429
 
     @app.errorhandler(500)
     def internal_server_error(error):
