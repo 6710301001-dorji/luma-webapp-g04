@@ -116,6 +116,71 @@ def test_auth_rejects_non_string_fields_and_non_object_body():
         assert res.status_code == 400, f"{path} {body} ควรได้ 400 แต่ได้ {res.status_code}"
 
 
+def _register(client, email, name, password="password123"):  # no-secret-check
+    return client.post("/api/auth/register", json={"email": email, "displayName": name, "password": password})
+
+
+def test_register_duplicate_is_400_with_one_neutral_message():
+    """[กรณีทดสอบ #49]: ซ้ำ -> 400 (API_CONTRACT.md) ข้อความเดียวกันไม่ว่าซ้ำที่อีเมลหรือชื่อ
+
+    ถ้าข้อความต่างกัน คนนอกจะเดาได้ว่าอีเมลไหนมีบัญชีอยู่ (account enumeration)
+    """
+    _, client = _make_client()
+    assert _register(client, "AAA@example.com", "Aaa").status_code == 201  # no-secret-check
+
+    same_email = _register(client, "aaa@example.com", "Other")  # no-secret-check
+    same_name = _register(client, "new@example.com", "Aaa")  # no-secret-check
+    assert same_email.status_code == 400
+    assert same_name.status_code == 400
+    assert same_email.get_json() == same_name.get_json()
+
+
+def test_register_display_name_is_case_insensitive():
+    """[กรณีทดสอบ #49]: มี "Aaa" แล้ว สมัคร "aaa" หรือ "AAA" ต้องไม่ได้ — เหมือนอีเมล"""
+    app, client = _make_client()
+    assert _register(client, "first@example.com", "Aaa").status_code == 201  # no-secret-check
+
+    for name in ("aaa", "AAA", "  aAa  "):
+        res = _register(client, f"{name.strip()}@x.example", name)
+        assert res.status_code == 400, f"{name!r} ควรถูกปฏิเสธ แต่ได้ {res.status_code}"
+
+    from app.models import User
+    with app.app_context():
+        assert User.query.count() == 1
+
+
+def test_register_short_password_names_the_field():
+    """[กรณีทดสอบ #49]: รหัสสั้น -> 400 และบอกว่าฟิลด์ไหนผิดตามรูปแบบ errors ของ contract"""
+    _, client = _make_client()
+    res = _register(client, "short@example.com", "Shorty", password="short")  # no-secret-check
+    assert res.status_code == 400
+    body = res.get_json()
+    assert set(body["errors"]) == {"password"}
+    assert body["error"]  # register.js อ่าน error — ต้องยังมีอยู่
+
+
+def test_register_race_on_unique_constraint_is_400_not_500():
+    """[กรณีทดสอบ #49]: สองคนสมัครพร้อมกันผ่านด่านเช็คในโค้ดไปทั้งคู่ -> UNIQUE ในฐานปฏิเสธคนที่สอง
+
+    จำลองด้วยให้ commit โยน IntegrityError ต้องได้ข้อความซ้ำแบบเดียวกัน ไม่ใช่ 500
+    และ session ต้องถูก rollback — สมัครคนถัดไปได้ตามปกติ
+    """
+    from unittest.mock import patch
+    from sqlalchemy.exc import IntegrityError
+
+    _, client = _make_client()
+    taken = _register(client, "x@example.com", "X")  # no-secret-check
+    duplicate_body = _register(client, "x@example.com", "Y").get_json()  # no-secret-check
+
+    with patch.object(db.session, "commit", side_effect=IntegrityError("INSERT", {}, Exception("UNIQUE"))):
+        raced = _register(client, "race@example.com", "Racer")  # no-secret-check
+    assert taken.status_code == 201
+    assert raced.status_code == 400
+    assert raced.get_json() == duplicate_body
+
+    assert _register(client, "after@example.com", "After").status_code == 201  # no-secret-check
+
+
 # ==============================================================================
 # ตัวรันสำหรับสั่งรันไฟล์นี้โดยตรง (Direct Runner)
 # ==============================================================================
