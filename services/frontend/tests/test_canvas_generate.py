@@ -21,7 +21,8 @@ pytestmark = pytest.mark.skipif(NODE is None, reason="ต้องมี node �
 
 def _run(scenario: str, script: str) -> dict:
     out = subprocess.run([NODE, str(HERE / "canvas_generate_harness.js"), scenario, str(JS / script)],
-                         capture_output=True, text=True, timeout=30)
+                         # node พิมพ์ UTF-8 เสมอ — ไม่ระบุ encoding จะ decode ตาม locale (cp874/cp1252) แล้วข้อความไทยพัง
+                         capture_output=True, text=True, encoding="utf-8", timeout=30)
     assert out.returncode == 0, out.stderr
     return json.loads(out.stdout.strip().splitlines()[-1])
 
