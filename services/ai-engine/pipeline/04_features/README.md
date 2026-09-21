@@ -5,6 +5,17 @@
 ## หน้าที่
 
 จากภาพ + mask ที่ได้จาก `03_segmentation` → คำนวณ **ตัวเลขที่บรรยายภาพ**
+
+## Fixed-length feature vector
+
+`feature_vector.py` implements issue #62 using normalized eight-bin histograms
+for the B, G, and R channels plus grayscale mean, standard deviation, skewness,
+and kurtosis. The result always contains 28 finite values, regardless of image
+dimensions, and is deterministic for the same input.
+
+`distance()` compares two vectors using Euclidean distance. This supports the
+rule-based classification and automatic tagging work without adding a learned
+model or accessing another service.
 แล้วใช้ตัวเลขนั้นคัดแยก (Classification) หรือวิเคราะห์ (Analysis)
 
 ## ทำไมต้องคิดเรื่อง feature ก่อนเลือกวิธี
