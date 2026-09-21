@@ -54,8 +54,12 @@
             body: JSON.stringify({ image: currentImageBase64 }),
           });
 
-          const data = await res.json();
-          const colors = data.colors || ["#2F3BA3", "#5C6BC0", "#FF6B6B", "#4ECDC4", "#1A535C"];
+          // ห้าม fallback เป็นสีตายตัว — ผู้ใช้จะเข้าใจว่าเป็นสีจากภาพของตัวเอง
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !Array.isArray(data.colors)) {
+            throw new Error(data.error || `HTTP ${res.status}`);
+          }
+          const colors = data.colors;
 
           paletteSwatches.innerHTML = "";
           colors.forEach((hex) => {
@@ -102,11 +106,12 @@
             body: JSON.stringify({ image: currentImageBase64 }),
           });
 
-          const data = await res.json();
-          if (data.result_image) {
-            previewImg.src = data.result_image;
-            alert("ลบพื้นหลังสำเร็จเรียบร้อย");
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !data.result_image) {
+            throw new Error(data.error || `HTTP ${res.status}`);
           }
+          previewImg.src = data.result_image;
+          alert("ลบพื้นหลังสำเร็จเรียบร้อย");
         } catch (err) {
           console.error("Remove bg error:", err);
           alert("ไม่สามารถลบพื้นหลังได้ในขณะนี้");
