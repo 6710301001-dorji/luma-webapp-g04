@@ -28,6 +28,7 @@ sqlite3.Connection.backup() ของ Python อ่านข้อมูลผ�
 ถ้าไฟล์ backup เสีย ต้องรู้ตั้งแต่ก่อนเขียนทับ ไม่ใช่รู้หลังจากฐานข้อมูลจริงหายไปแล้ว
 """
 
+import re
 import sqlite3
 import sys
 from contextlib import closing
@@ -48,16 +49,31 @@ def backup(db_path, backup_dir):
     if not db_path.is_file():
         raise FileNotFoundError(f"ไม่พบฐานข้อมูล: {db_path}")
 
+    _check_readable(db_path)    # SQLite backup API ยอมคัดลอกจากไฟล์ 0 ไบต์ได้
     backup_dir.mkdir(parents=True, exist_ok=True)
 
-    # ใส่ถึงระดับไมโครวินาที เพื่อให้ backup 2 ครั้งติดกันได้คนละชื่อ
+    # เวลาอาจซ้ำกันบน Windows จึงลองเลขท้ายชื่อ และจองไฟล์แบบไม่ทับของเดิม
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
-    target = backup_dir / f"luma-{stamp}.db"
-    if target.exists():
-        raise FileExistsError(f"มีไฟล์ชื่อนี้อยู่แล้ว ไม่เขียนทับ: {target}")
+    number = 0
+    while True:
+        suffix = "" if number == 0 else f"-{number}"
+        target = backup_dir / f"luma-{stamp}{suffix}.db"
+        try:
+            with target.open("xb"):
+                pass
+            break
+        except FileExistsError:
+            number += 1
 
-    _copy(db_path, target)
-    _check_ok(target)          # สำเนาที่ได้ต้องเปิดได้และไม่เสีย
+    try:
+        _copy(db_path, target)
+        _check_readable(target)  # สำเนาที่ได้ต้องเปิดได้และไม่เสีย
+    except BaseException as error:
+        try:
+            target.unlink(missing_ok=True)
+        except OSError as cleanup_error:
+            error.add_note(f"ลบไฟล์ backup ที่ไม่สมบูรณ์ไม่ได้: {cleanup_error}")
+        raise
     return target
 
 
@@ -67,7 +83,7 @@ def restore(backup_file, db_path):
     if not backup_file.is_file():
         raise FileNotFoundError(f"ไม่พบไฟล์ backup: {backup_file}")
 
-    _check_ok(backup_file)     # ไฟล์เสีย → หยุดตรงนี้ ฐานข้อมูลปัจจุบันยังไม่ถูกแตะ
+    _check_is_project_db(backup_file)  # ไม่ผ่าน → หยุดตรงนี้ ฐานปัจจุบันยังไม่ถูกแตะ
     _copy(backup_file, Path(db_path))
 
 
@@ -81,12 +97,80 @@ def _copy(src, dst):
         source.backup(dest)
 
 
-def _check_ok(path):
-    """ให้ SQLite ตรวจไฟล์เอง — ไม่ใช่ไฟล์ฐานข้อมูลหรือไฟล์เสีย จะ raise DatabaseError"""
+def _check_readable(path):
+    """ไฟล์ต้องเป็นฐาน SQLite ที่เปิดได้และข้อมูลภายในไม่เสีย — ไม่สนว่ามีตารางอะไร
+
+    ใช้กับ backup() ทั้งต้นทางและสำเนา เพราะ backup แค่คัดลอกสิ่งที่มีอยู่
+    ไม่ควรมีสิทธิ์ปฏิเสธฐานของโปรเจกต์เองเพียงเพราะยังอยู่ revision เก่า —
+    ช่วงก่อนรัน migration คือตอนที่ต้องการ backup มากที่สุด
+
+    ตรวจ 16 ไบต์แรกก่อน เพราะไฟล์ 0 ไบต์ผ่าน integrity_check ได้
+    (SQLite ถือว่าไฟล์ว่างเป็นฐานเปล่าที่ถูกต้อง)
+    """
+    with path.open("rb") as file:
+        if file.read(16) != b"SQLite format 3\x00":
+            raise sqlite3.DatabaseError(f"ไฟล์ไม่ใช่ฐานข้อมูล SQLite: {path}")
+
     with closing(sqlite3.connect(path)) as conn:
         result = conn.execute("PRAGMA integrity_check").fetchone()[0]
     if result != "ok":
         raise sqlite3.DatabaseError(f"ไฟล์ฐานข้อมูลเสีย ({result}): {path}")
+
+
+def known_revisions():
+    """revision id ทั้งหมดที่โปรเจกต์นี้รู้จัก อ่านจากไฟล์จริงใน migrations/versions/
+
+    อ่านจากไฟล์แทนการเขียนรายชื่อไว้ในโค้ด เพื่อให้ตามทันเองเมื่อมี migration ใหม่
+    """
+    versions = DATABASE_DIR / "migrations" / "versions"
+    found = set()
+    for file in versions.glob("*.py"):
+        match = re.search(r"^revision\s*=\s*[\"']([^\"']+)[\"']",
+                          file.read_text(encoding="utf-8"), re.MULTILINE)
+        if match:
+            found.add(match.group(1))
+    return found
+
+
+def _check_is_project_db(path):
+    """ตรวจเพิ่มว่าเป็นฐานของโปรเจกต์นี้ — ใช้ก่อน restore เท่านั้น
+
+    restore เขียนทับฐานจริง จึงต้องกันไม่ให้เอาฐานของแอปอื่นมาทับโดยไม่ตั้งใจ
+
+    ดูที่ "ค่า" ใน alembic_version ไม่ใช่แค่ว่ามีตารางนั้นอยู่ เพราะแอป Flask/SQLAlchemy
+    แทบทุกตัวก็ใช้ alembic เหมือนกัน การมีตารางนี้จึงไม่ได้แปลว่าเป็นฐานของโปรเจกต์นี้
+    (ทดลองแล้ว: ฐานที่มี alembic_version ของโปรเจกต์อื่นเคย restore ทับฐานจริงได้)
+
+    ไม่ตรวจด้วยชื่อตารางอย่าง users/assets เพราะ users เพิ่งเกิดใน deba60c08f36
+    ฐานที่ยังอยู่ revision ก่อนหน้าก็เป็นฐานของโปรเจกต์นี้เต็มตัว
+    """
+    _check_readable(path)
+
+    with closing(sqlite3.connect(path)) as conn:
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "alembic_version" not in tables:
+            raise sqlite3.DatabaseError(
+                f"ไฟล์ไม่ใช่ฐานข้อมูลของโปรเจกต์นี้ (ไม่มีตาราง alembic_version): {path}"
+            )
+        rows = conn.execute("SELECT version_num FROM alembic_version").fetchall()
+
+    known = known_revisions()
+    if not known:
+        raise sqlite3.DatabaseError(
+            f"อ่าน revision จาก {DATABASE_DIR / 'migrations' / 'versions'} ไม่ได้ จึงตรวจไม่ได้ว่า"
+            f"ไฟล์เป็นฐานของโปรเจกต์นี้ — ไม่ restore ทับฐานจริงโดยไม่ตรวจ"
+        )
+
+    versions = {row[0] for row in rows}
+    if not versions:
+        raise sqlite3.DatabaseError(
+            f"ตาราง alembic_version ว่าง บอกไม่ได้ว่าไฟล์นี้เป็นฐานของโปรเจกต์ไหน: {path}"
+        )
+    if not versions <= known:
+        raise sqlite3.DatabaseError(
+            f"ไฟล์ไม่ใช่ฐานข้อมูลของโปรเจกต์นี้ — revision {sorted(versions)} "
+            f"ไม่อยู่ในชุด migration ของโปรเจกต์: {path}"
+        )
 
 
 def default_db_path():
