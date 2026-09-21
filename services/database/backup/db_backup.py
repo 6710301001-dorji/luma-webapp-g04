@@ -28,6 +28,7 @@ sqlite3.Connection.backup() ของ Python อ่านข้อมูลผ�
 ถ้าไฟล์ backup เสีย ต้องรู้ตั้งแต่ก่อนเขียนทับ ไม่ใช่รู้หลังจากฐานข้อมูลจริงหายไปแล้ว
 """
 
+import re
 import sqlite3
 import sys
 from contextlib import closing
@@ -116,22 +117,59 @@ def _check_readable(path):
         raise sqlite3.DatabaseError(f"ไฟล์ฐานข้อมูลเสีย ({result}): {path}")
 
 
+def known_revisions():
+    """revision id ทั้งหมดที่โปรเจกต์นี้รู้จัก อ่านจากไฟล์จริงใน migrations/versions/
+
+    อ่านจากไฟล์แทนการเขียนรายชื่อไว้ในโค้ด เพื่อให้ตามทันเองเมื่อมี migration ใหม่
+    """
+    versions = DATABASE_DIR / "migrations" / "versions"
+    found = set()
+    for file in versions.glob("*.py"):
+        match = re.search(r"^revision\s*=\s*[\"']([^\"']+)[\"']",
+                          file.read_text(encoding="utf-8"), re.MULTILINE)
+        if match:
+            found.add(match.group(1))
+    return found
+
+
 def _check_is_project_db(path):
     """ตรวจเพิ่มว่าเป็นฐานของโปรเจกต์นี้ — ใช้ก่อน restore เท่านั้น
 
     restore เขียนทับฐานจริง จึงต้องกันไม่ให้เอาฐานของแอปอื่นมาทับโดยไม่ตั้งใจ
 
-    ตรวจด้วย alembic_version ไม่ใช่ users/assets เพราะ alembic สร้างตารางนี้
-    ตั้งแต่ migration แรกและมีอยู่ทุก revision ส่วน users เพิ่งเกิดใน deba60c08f36
-    ฐานที่ยังอยู่ revision 18566175f613 จึงมีแต่ assets ทั้งที่เป็นฐานของโปรเจกต์นี้จริง
+    ดูที่ "ค่า" ใน alembic_version ไม่ใช่แค่ว่ามีตารางนั้นอยู่ เพราะแอป Flask/SQLAlchemy
+    แทบทุกตัวก็ใช้ alembic เหมือนกัน การมีตารางนี้จึงไม่ได้แปลว่าเป็นฐานของโปรเจกต์นี้
+    (ทดลองแล้ว: ฐานที่มี alembic_version ของโปรเจกต์อื่นเคย restore ทับฐานจริงได้)
+
+    ไม่ตรวจด้วยชื่อตารางอย่าง users/assets เพราะ users เพิ่งเกิดใน deba60c08f36
+    ฐานที่ยังอยู่ revision ก่อนหน้าก็เป็นฐานของโปรเจกต์นี้เต็มตัว
     """
     _check_readable(path)
 
     with closing(sqlite3.connect(path)) as conn:
         tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    if "alembic_version" not in tables:
+        if "alembic_version" not in tables:
+            raise sqlite3.DatabaseError(
+                f"ไฟล์ไม่ใช่ฐานข้อมูลของโปรเจกต์นี้ (ไม่มีตาราง alembic_version): {path}"
+            )
+        rows = conn.execute("SELECT version_num FROM alembic_version").fetchall()
+
+    known = known_revisions()
+    if not known:
         raise sqlite3.DatabaseError(
-            f"ไฟล์ไม่ใช่ฐานข้อมูลของโปรเจกต์นี้ (ไม่มีตาราง alembic_version): {path}"
+            f"อ่าน revision จาก {DATABASE_DIR / 'migrations' / 'versions'} ไม่ได้ จึงตรวจไม่ได้ว่า"
+            f"ไฟล์เป็นฐานของโปรเจกต์นี้ — ไม่ restore ทับฐานจริงโดยไม่ตรวจ"
+        )
+
+    versions = {row[0] for row in rows}
+    if not versions:
+        raise sqlite3.DatabaseError(
+            f"ตาราง alembic_version ว่าง บอกไม่ได้ว่าไฟล์นี้เป็นฐานของโปรเจกต์ไหน: {path}"
+        )
+    if not versions <= known:
+        raise sqlite3.DatabaseError(
+            f"ไฟล์ไม่ใช่ฐานข้อมูลของโปรเจกต์นี้ — revision {sorted(versions)} "
+            f"ไม่อยู่ในชุด migration ของโปรเจกต์: {path}"
         )
 
 

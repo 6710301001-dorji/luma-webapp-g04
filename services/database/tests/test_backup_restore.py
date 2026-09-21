@@ -307,3 +307,50 @@ def test_restore_rejects_a_database_from_another_app(db_file, tmp_path):
         restore(stranger, db_file)
 
     assert count_rows(db_file) == before
+
+
+def test_restore_rejects_another_app_that_also_uses_alembic(db_file, tmp_path):
+    """[กรณีทดสอบ]: ฐานของแอปอื่นที่ใช้ alembic เหมือนกัน ต้องไม่ถูกเอามาทับฐานจริง
+
+    แอป Flask/SQLAlchemy แทบทุกตัวก็มีตาราง alembic_version การมีตารางนั้นจึงไม่พอ
+    ต้องดูว่า revision ข้างในเป็นของ migration ชุดนี้จริงหรือไม่
+    """
+    before = count_rows(db_file)
+    other = tmp_path / "other_app.db"
+    with closing(sqlite3.connect(other)) as conn, conn:
+        conn.execute("CREATE TABLE invoices (id INTEGER PRIMARY KEY, total REAL)")
+        conn.execute("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL)")
+        conn.execute("INSERT INTO alembic_version VALUES ('ffffffffffff')")
+
+    with pytest.raises(sqlite3.DatabaseError, match="ไม่อยู่ในชุด migration"):
+        restore(other, db_file)
+
+    assert count_rows(db_file) == before
+
+
+def test_restore_rejects_database_with_empty_alembic_version(db_file, tmp_path):
+    """[กรณีทดสอบ]: ตาราง alembic_version ที่ไม่มีแถว บอกไม่ได้ว่าเป็นฐานของใคร"""
+    before = count_rows(db_file)
+    blank = tmp_path / "blank_version.db"
+    with closing(sqlite3.connect(blank)) as conn, conn:
+        conn.execute("CREATE TABLE assets (id INTEGER PRIMARY KEY)")
+        conn.execute("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL)")
+
+    with pytest.raises(sqlite3.DatabaseError, match="ว่าง"):
+        restore(blank, db_file)
+
+    assert count_rows(db_file) == before
+
+
+def test_known_revisions_comes_from_the_migration_files(db_file):
+    """[กรณีทดสอบ]: รายชื่อ revision ต้องอ่านจากไฟล์จริง ไม่ใช่ค่าที่เขียนตายไว้ในโค้ด
+
+    ฐานที่ migration รันจนจบต้องมี revision ปลายทางอยู่ในชุดที่อ่านได้เสมอ
+    ถ้าวันหนึ่งมี migration ใหม่แล้วรายชื่อไม่ขยับตาม restore จะเริ่มปฏิเสธฐานที่ถูกต้อง
+    """
+    known = db_backup.known_revisions()
+    assert known, "ต้องอ่าน revision จาก migrations/versions/ ได้อย่างน้อยหนึ่งตัว"
+
+    with closing(sqlite3.connect(db_file)) as conn:
+        current = conn.execute("SELECT version_num FROM alembic_version").fetchone()[0]
+    assert current in known
