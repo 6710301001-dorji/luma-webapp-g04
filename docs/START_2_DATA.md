@@ -10,21 +10,34 @@
 
 ## ตอนนี้อยู่ตรงไหน
 
-**M0 · Walking Skeleton** — คุณกำลังทำ #45 ส่วนฐานข้อมูลอยู่บน branch `feat/skeleton-assets-table`
+**อัปเดต 21 ก.ย. 2026** — สถานะนี้เปลี่ยนบ่อย ถ้าไม่ตรงกับ GitHub ให้เชื่อ GitHub แล้วแก้ไฟล์นี้
 
-ทำไปแล้ว (แต่ **ยังไม่ commit**):
-
-| ไฟล์ | สถานะ |
+| งาน | สถานะ |
 |---|---|
-| `services/backend/app/models/asset.py` | ✅ เขียนแล้ว — โมเดล `Asset` 4 คอลัมน์ |
-| `services/backend/app/models/__init__.py` | ✅ เขียนแล้ว — `db = SQLAlchemy()` |
-| `services/database/migrate_app.py` | ✅ เขียนแล้ว — entry point ของ `flask db` |
-| `services/database/migrations/` | ⬜ **ยังว่าง มีแค่ `.gitkeep`** ← งานถัดไปอยู่ตรงนี้ |
+| #45 Walking Skeleton ส่วนฐานข้อมูล | ✅ merge แล้ว (PR #81) — ตาราง `assets` + migration `18566175f613` |
+| #16 Schema users | ✅ merge แล้ว (PR #96) — ตาราง `users` + `assets.user_id` + FK `ON DELETE CASCADE` (migration `deba60c08f36`) |
+| #31 Backup / Restore | 🟡 PR #110 approved รอ merge — ส่วน seed data ยังไม่เริ่ม ปิด issue ไม่ได้ |
+| #119 `users` UNIQUE COLLATE NOCASE | ⬜ **คิวบนสุด** แยกออกมาจาก #17 |
+| #17 tags many-to-many | ⬜ รอ #32 ข้อ 5 จากคนที่ 3 |
+| #24 Asset Hub queries | ⬜ รอ #17 |
+| #97 `user_id` เป็น NOT NULL | ⬜ รอ PR ของ #115 merge |
 
-**ยังไม่เสร็จ** เพราะ [ADR-008](DECISIONS.md) กำหนดว่า *"ตัวจริงที่สร้างตารางคือ migration ไม่ใช่โมเดล"*
-มีโมเดลแต่ไม่มี migration = ตารางยังไม่มีจริง
+### ⚠️ เช็คฐานข้อมูลในเครื่องก่อนเริ่มทุกครั้ง
 
----
+```bash
+git switch develop && git pull --ff-only origin develop
+flask --app services/database/migrate_app db current
+```
+
+ต้องได้ `deba60c08f36 (head)` — ถ้าไม่ตรงให้ `db upgrade`
+
+**กับดักที่เจอมาแล้วจริง 2 แบบ** (เสียเวลาไปครึ่งชั่วโมง)
+
+- อยู่ branch เก่าแล้วสั่ง `db current` → `Error: Can't locate revision identified by 'deba60c08f36'`
+  ฐานไม่ได้พัง แค่ branch นั้นไม่มีไฟล์ migration ในดิสก์
+- ฐานเก่า + branch เก่า → ขึ้น `18566175f613 (head)` ซึ่ง **ลวงว่าฐานทันสมัยแล้ว**
+  เพราะป้าย `(head)` คิดจากไฟล์ที่ branch นั้นมี ไม่ใช่จาก migration ทั้งหมดที่มีจริง
+
 
 ## ตั้งเครื่องก่อน (ทำครั้งเดียว)
 
@@ -54,113 +67,76 @@ python tools/check_all.py --install-hook   # .git/hooks/ ไม่ขึ้น g
 
 > repo นี้**ไม่มี label `Blocked`** ลำดับการรอจึงไม่ปรากฏบน GitHub เลย ยกเว้นที่นี่
 
-### โครงสร้างลำดับงาน — อ่านจากบนลงล่าง
-
 ```text
-#45  Walking Skeleton ── ตาราง assets 4 คอลัมน์ + migration แรก
- │   ⏳ กำลังทำอยู่บน branch feat/skeleton-assets-table
- │   ⛔ ทั้งทีมต้องเสร็จอันนี้ก่อน ห้ามแตะอันอื่น
+#119  users.username / email UNIQUE COLLATE NOCASE      priority:high
+ │    ⛔ ช่องโหว่ทำงานอยู่บน develop แล้ว — ตอนนี้ Boss กับ boss สมัครได้ทั้งคู่
+ │    ⚠️ ให้ PR ของ #49 (จับ IntegrityError) merge ก่อน PR นี้
  │
- └─ #32  ตกลง API contract ── ของคุณคือข้อ 1, 2, 5, 7
-     │   🔴 ข้อ 5 (รูปแบบ auto-tag) ต้องได้คำตอบจากคนที่ 3 ก่อน ไม่งั้น #17 ทำซ้ำ
-     │
-     ├─ #16  schema + migration (users / jobs / assets)
-     │   │      🔴 คนที่ 1 รออยู่ — #49 กับ #50 เริ่มไม่ได้จนกว่าตาราง users จะมี
-     │   │      ➜ งานที่ควรรีบที่สุดในคิวนี้
-     │   │
-     │   └─ #17  tags many-to-many + UNIQUE COLLATE NOCASE
-     │       │      ⚠️ ต้องปิดข้อ 5 ของ #32 ก่อน
-     │       │
-     │       └─ #24  Asset Hub queries (ค้นหา/กรอง/เรียง/แบ่งหน้า)
-     │                  🔴 คนที่ 1 รออยู่ (#59)
-     │
-     └─ #31  seed data + backup / restore
-              priority:low — ไม่มีใครรอ ทำท้ายสุดได้
+ ├─ #17  tags + asset_tags many-to-many                  priority:high
+ │   │   🔴 ต้องปิด #32 ข้อ 5 ก่อน (auto-tag มี score หรือไม่ กระทบ schema)
+ │   │
+ │   └─ #24  Asset Hub queries (ค้นหา / กรอง / เรียง / แบ่งหน้า)
+ │              🔴 คนที่ 1 รออยู่ (#59)
+ │
+ ├─ #97  assets.user_id เป็น NOT NULL                    priority:medium
+ │       ⚠️ รอ PR ของ #115 merge (/api/generate ต้องผูก user_id ก่อน)
+ │       ⚠️ ต้องเคาะก่อนว่าจะทำอย่างไรกับแถวเก่าที่ user_id เป็น NULL
+ │
+ └─ #31  seed data (ส่วน backup/restore อยู่ใน PR #110 แล้ว)
+          priority:low — ไม่มีใครรอ
 ```
-
-**คิวคุณสั้นที่สุดในทีม (4 issue) แต่ 2 อันเป็นคอขวดของคนอื่น** — #16 กับ #24
-
-| ลำดับ | issue | ทำไมอยู่ตรงนี้ | ใครรอคุณ |
-|:--:|---|---|---|
-| **0** | [#45](https://github.com/boss2912/luma-webapp-g04/issues/45) Walking Skeleton — ตาราง `assets` 4 คอลัมน์ + migration แรก | **กำลังทำอยู่** · ตัว issue เขียนเองว่า *"ก่อนแตะ issue อื่นทุกอัน"* | ทั้งทีม |
-| **1** | [#32](https://github.com/boss2912/luma-webapp-g04/issues/32) ตกลง API contract 7 ข้อ | GitHub บันทึกว่า **#45 บล็อก #32** และ **#32 บล็อก #17 #24** ของคุณโดยตรง | ทั้งทีม |
-| **2** | [#16](https://github.com/boss2912/luma-webapp-g04/issues/16) Schema + Migration (users / assets / jobs) | 🔴 **งานที่ควรรีบที่สุดในคิวนี้** | **คนที่ 1 รออยู่** — #49 สมัครสมาชิก และ #50 login เริ่มไม่ได้จนกว่าตาราง `users` จะมี |
-| **3** | [#17](https://github.com/boss2912/luma-webapp-g04/issues/17) `tags` many-to-many + `UNIQUE` case-insensitive | ⚠️ **ต้องปิดข้อ 5 ของ #32 ก่อน** ไม่งั้นทำ migration ซ้ำ (ดูกล่องข้างล่าง) | ตัวคุณเอง (#24) |
-| **4** | [#24](https://github.com/boss2912/luma-webapp-g04/issues/24) Asset Hub queries — ค้นหา/กรอง/เรียง/แบ่งหน้า | ต้องมีตาราง `tags` จาก #17 ก่อน | **คนที่ 1 รออยู่** (#59) |
-| **5** | [#31](https://github.com/boss2912/luma-webapp-g04/issues/31) Seed data + Backup / Restore | `priority:low` — ทำท้ายสุดได้ | — |
-
-**คิวคุณสั้นที่สุดในทีม (5 อัน) แต่ 2 อันในนั้นบล็อกคนที่ 1 อยู่** — #16 กับ #24 คือคอขวดของทั้งโปรเจกต์
 
 ### ⚠️ ทำไม #17 ต้องรอ #32 ข้อ 5
 
-ข้อ 5 คือ **"รูปแบบ auto-tag ที่ `04_features` (คนที่ 3) ส่งให้ Asset Hub"** มี 3 ทางเลือกใน #32:
+ข้อ 5 คือ **"รูปแบบ auto-tag ที่ `04_features` (คนที่ 3) ส่งให้ Asset Hub"** มี 3 ทางเลือก:
 
-| ทางเลือก | หน้าตา | ผลต่อ schema ของคุณ |
+| ทางเลือก | หน้าตา | ผลต่อ schema |
 |---|---|---|
-| แบน | `["warm", "portrait"]` | ตาราง `tags` มีแค่ `id`, `name` |
+| แบน | `["warm", "portrait"]` | `tags` มีแค่ `id`, `name` |
 | namespace | `["tone:warm", "contrast:high"]` | เหมือนกัน แต่ต้องตกลงตัวคั่น |
 | มีคะแนน | `[{"tag": "warm", "score": 0.87}]` | **`asset_tags` ต้องมีคอลัมน์ `score` เพิ่ม** |
 
-เลือกทีหลัง = ต้องเขียน migration ตัวใหม่มา `ALTER TABLE` ซึ่ง **SQLite ทำได้ลำบาก**
+เลือกทีหลัง = ต้องเขียน migration ใหม่มา `ALTER TABLE` ซึ่ง **SQLite ทำได้ลำบาก**
 (ต้องใช้ `batch_alter_table` = สร้างตารางใหม่ + คัดลอกข้อมูล) → **คุยให้จบก่อนลงมือ**
 
 ---
 
-## งานวันแรก — ปิด #45 ให้จบ
+## งานถัดไป — #119 UNIQUE COLLATE NOCASE
 
-คุณอยู่บน `feat/skeleton-assets-table` แล้ว เหลือ 3 ขั้น
+### ขั้นที่ 1 — preflight ก่อนเขียนอะไร (ทำแล้วบางส่วน)
 
-### ขั้นที่ 1 — สร้างโครง migration (ยังไม่เคยรัน)
+ต้องรู้ก่อนว่าเครื่องใครมีแถวชนกันแบบ case-insensitive อยู่ ไม่ใช่สมมติว่าว่าง
+SQL และวิธีรายงานผลอยู่ในคอมเมนต์ของ #119 — เครื่องคนที่ 2 ตรวจแล้ว: `users` 0 แถว ไม่มี collision
 
-`services/database/migrations/` มีแค่ `.gitkeep` แปลว่า Alembic ยังไม่ได้ถูกตั้งค่าเลย
+### ขั้นที่ 2 — เขียน test ก่อนเขียน migration
 
-```bash
-conda activate luma
-flask --app services/database/migrate_app db init
-```
+ลำดับที่ถูกอยู่ใน [`HOW_TO_WORK.md`](HOW_TO_WORK.md) — เงื่อนไขใน issue → test → โค้ด
+test ใช้ `.db` ชั่วคราวใน `tmp_path`
+ไม่แตะ `instance/luma.db` — ดูแม่แบบที่ `services/database/tests/test_users_table.py:29-43`
 
-### ขั้นที่ 2 — สร้าง migration ตัวแรกจากโมเดลที่เขียนไว้
-
-```bash
-flask --app services/database/migrate_app db migrate -m "create assets table"
-flask --app services/database/migrate_app db upgrade
-```
-
-> ⚠️ `db migrate` แค่ **เขียนไฟล์** ยังไม่แก้ฐานข้อมูล ต้อง `db upgrade` ต่อเสมอ
-> ⚠️ **อ่านไฟล์ที่ autogenerate ออกมาทุกครั้งก่อน `upgrade`** — Alembic ตรวจไม่เจอหลายเรื่อง
-> (การเปลี่ยนชื่อคอลัมน์จะกลายเป็น drop + add = ข้อมูลหาย)
-
-### ขั้นที่ 3 — พิสูจน์ว่าตารางใช้ได้จริง
-
-เงื่อนไข **MUST** ของ #45 ที่ขึ้นกับฐานข้อมูลมี 2 ข้อ — ทดสอบตรงๆ ว่าผ่าน:
-
-| MUST ของ #45 | แปลว่าต้องพิสูจน์อะไร |
+| test | ต้องพิสูจน์อะไร |
 |---|---|
-| *"กดปุ่ม 3 ครั้งได้ 3 ภาพ ไม่ทับกัน"* | INSERT 3 แถวโดยไม่ใส่ `id` → ต้องได้ `id` = 1, 2, 3 เอง |
-| *"กด F5 แล้วภาพเดิมยังอยู่"* | ปิดโปรแกรมแล้วเปิดใหม่ SELECT ยังเจอ · `ORDER BY created_at DESC` ได้ลำดับใหม่→เก่าถูก |
+| insert `Boss` แล้ว `boss` | ถูกปฏิเสธ **ที่ระดับฐานข้อมูล** ไม่ใช่ที่ Python |
+| insert `AAA@example.com` แล้ว `aaa@example.com` | ถูกปฏิเสธเช่นกัน |
+| `downgrade` แล้ว `upgrade` ใหม่ | schema เหมือนเดิม |
+| ฐานที่มีแถวชนกันอยู่แล้ว | migration **fail-fast** ไม่แก้ schema ค้างครึ่งทาง |
 
-ทดสอบได้ในไฟล์ซ้อมมือของคุณเอง — [`../services/database/study/`](../services/database/study/)
-มี `05-assets-luma.py` อยู่แล้ว
+### ขั้นที่ 3 — migration + โมเดล ใน commit เดียวกัน
 
-จากนั้น:
+`batch_alter_table` เพราะ SQLite เปลี่ยน collation ด้วย `ALTER` ตรงๆ ไม่ได้
+และแก้ `services/backend/app/models/user.py` ให้ตรงกัน — **ห้ามแยก commit**
+(โมเดลเปลี่ยนแต่ไม่มี migration = ตารางจริงไม่เปลี่ยน)
 
 ```bash
-python tools/check_all.py --with-tests
-git push -u origin feat/skeleton-assets-table
+git switch develop && git pull --ff-only origin develop
+git switch -c feat/users-nocase-unique
 ```
 
-เปิด PR เข้า `develop` ใส่ `Closes #45` ในคำอธิบาย
+### ⚠️ migration ห้ามตัดสินใจแทนเจ้าของข้อมูล
 
-### ⚠️ 2 อย่างที่ยังค้าง
+ถ้าเจอแถวชนกัน **ห้ามรวมบัญชีหรือลบบัญชีเอง** ให้ล้มพร้อมข้อความบอกว่าแถวไหนชน
+แล้วให้คนรัน migration เคลียร์เองก่อนรันใหม่
 
-1. `asset.py` อ้างถึงไฟล์ `services/database/schema/assets.sql` ในคอมเมนต์
-   **แต่ไฟล์นั้นยังไม่มี** (`schema/` มีแค่ `.gitkeep`) → เขียนเพิ่ม หรือลบคอมเมนต์ทิ้ง
-   ไม่งั้นเป็นลิงก์ตายที่คนอ่านตามแล้วไม่เจอ
-2. `services/database/study/study.db` และ `backup.db` เป็นไฟล์ `.db`
-   **อย่าให้หลุดขึ้น git** — v1 เคยพลาดตรงนี้แล้ว test ล้ม 3 ข้อ
-   (`pre-commit` hook ตรวจให้ ถ้าติดตั้งแล้ว)
-
----
 
 ## จุดที่ต้องคุยกับคนอื่นก่อนเขียนโค้ด
 
