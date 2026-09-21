@@ -19,7 +19,8 @@ function el(attrs = {}) {
 function load(nodes, fetchImpl, extra = {}) {
   const alerts = [];
   const ctx = {
-    window: {}, console: { error() {}, log() {} }, alert: (m) => alerts.push(m), fetch: fetchImpl,
+    // csrfHeaders มาจาก js/csrf.js (#125) — stub ไว้ให้ JS ที่ใส่ token แล้วรันได้ (ตรวจ token แยกใน test_csrf_headers.py)
+    window: { csrfHeaders: () => ({}) }, console: { error() {}, log() {} }, alert: (m) => alerts.push(m), fetch: fetchImpl,
     document: { readyState: "complete", getElementById: (id) => nodes[id] || null, createElement: () => el(), addEventListener() {} },
     ...extra,
   };
