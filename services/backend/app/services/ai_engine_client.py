@@ -32,6 +32,11 @@ def extract_color_palette(image_b64: str, colors: int = 5) -> list[str]:
     endpoint = f"{ai_url}/pipeline/04_features/color_palette"
     timeout = current_app.config.get("AI_ENGINE_TIMEOUT_SECONDS", 30)
 
+    # canvas.js ส่งมาจาก FileReader.readAsDataURL() เป็น "data:image/png;base64,...."
+    # ai-engine รับ base64 ล้วนตาม API_CONTRACT — ตัด prefix ออกแบบเดียวกับ save_base64_image()
+    if "," in image_b64:
+        image_b64 = image_b64.split(",", 1)[1]
+
     payload = {"image": image_b64, "params": {"colors": colors}}
 
     try:

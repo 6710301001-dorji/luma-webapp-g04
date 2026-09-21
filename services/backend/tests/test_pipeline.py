@@ -43,6 +43,39 @@ def test_palette_extract_requires_image_field():
     assert res.status_code == 400
 
 
+def test_palette_extract_rejects_non_string_image_and_non_object_body():
+    """[กรณีทดสอบ]: image เป็นตัวเลข/list/null หรือ body เป็น JSON array ต้องได้ 400 ไม่ใช่ 500
+
+    เดิมเรียก .strip() / .get() ตรงๆ ทำให้ AttributeError หลุดเป็น 500
+    """
+    _, client = _make_client()
+    for body in ({"image": 12345}, {"image": ["a"]}, {"image": None}):
+        res = client.post("/api/pipeline/palette/extract", json=body)
+        assert res.status_code == 400, f"{body} ควรได้ 400 แต่ได้ {res.status_code}"
+
+    res = client.post("/api/pipeline/palette/extract", json=[1, 2])
+    assert res.status_code == 400
+
+
+def test_palette_extract_strips_data_url_prefix_before_forwarding():
+    """[กรณีทดสอบ]: canvas.js ส่ง Data URL จาก FileReader.readAsDataURL()
+    ต้องตัด "data:image/png;base64," ออกก่อนส่งไป ai-engine ที่รับ base64 ล้วน
+    """
+    _, client = _make_client()
+    raw_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+
+    fake_response = Mock()
+    fake_response.status_code = 200
+    fake_response.json.return_value = {"image": raw_b64, "metrics": {"color_palette": ["#ffffff"]}}
+
+    with patch("app.services.ai_engine_client.requests.post", return_value=fake_response) as mock_post:
+        res = client.post("/api/pipeline/palette/extract", json={"image": f"data:image/png;base64,{raw_b64}"})
+
+    assert res.status_code == 200
+    forwarded = mock_post.call_args.kwargs["json"]["image"]
+    assert forwarded == raw_b64, "ต้องส่ง base64 ล้วนไป ai-engine ไม่ใช่ Data URL"
+
+
 def test_palette_extract_ai_engine_unreachable_returns_502():
     """[กรณีทดสอบ]: เชื่อมต่อ ai-engine ไม่ได้ (ConnectionError) -> 502 ไม่ใช่ 500
 
@@ -113,6 +146,8 @@ if __name__ == "__main__":
     tests = [
         ("ตรวจสอบ Request ต้องเป็น JSON", test_palette_extract_requires_json),
         ("ตรวจสอบต้องมีฟิลด์ image", test_palette_extract_requires_image_field),
+        ("image ไม่ใช่ string / body ไม่ใช่ object -> 400", test_palette_extract_rejects_non_string_image_and_non_object_body),
+        ("ตัด Data URL prefix ก่อนส่ง ai-engine", test_palette_extract_strips_data_url_prefix_before_forwarding),
         ("ai-engine เชื่อมต่อไม่ได้ -> 502", test_palette_extract_ai_engine_unreachable_returns_502),
         ("ai-engine ตอบสำเร็จ -> colors ถูกต้อง", test_palette_extract_success_returns_hex_colors),
         ("ai-engine ตอบผิดรูป -> 502", test_palette_extract_malformed_ai_engine_response_returns_502),

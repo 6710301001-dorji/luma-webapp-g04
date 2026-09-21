@@ -170,12 +170,13 @@ def handle_palette_extract():
     ส่งมาในคำขอเอง ต่างจาก GET /api/assets ที่ต้องป้องกันข้อมูลที่เก็บไว้จริง
     """
     data = request.get_json(silent=True)
-    if not data:
-        return jsonify({"error": "คำขอต้องเป็น JSON / Request must be JSON"}), 400
+    if not isinstance(data, dict) or not data:
+        return jsonify({"error": "คำขอต้องเป็น JSON object / Request must be a JSON object"}), 400
 
-    image_b64 = data.get("image", "").strip()
-    if not image_b64:
-        return jsonify({"error": "กรุณาระบุภาพ (image) / image is required"}), 400
+    image_b64 = data.get("image")
+    if not isinstance(image_b64, str) or not image_b64.strip():
+        return jsonify({"error": "กรุณาระบุภาพ (image) เป็น string / image must be a non-empty string"}), 400
+    image_b64 = image_b64.strip()
 
     try:
         colors = extract_color_palette(image_b64, colors=5)
