@@ -33,8 +33,13 @@ tools/personal_terms.local.txt
 # หมายเหตุ: เก็บไว้นอก static/ เสมอ ต้องเสิร์ฟผ่าน route ที่เช็ค ownership (F05)
 generated/
 uploads/
+# AGENTS.md ข้อ 8 บังคับว่าทุกโมดูลใน pipeline/ ต้องมีภาพ before/after ในโฟลเดอร์นี้
+# แต่กฎเดิมกันทั้งโฟลเดอร์ ทำให้ git add ภาพไม่ติดและไม่มีอะไรฟ้อง (issue #132)
+# เปิดทางเฉพาะ .png ซึ่งเป็นนามสกุลเดียวที่โค้ดใน pipeline/ เขียนลงที่นี่จริง
+# (ผลวัด .csv/.json ของ 05_evaluation เขียนลง samples/benchmark/ ซึ่งไม่ถูกกันอยู่แล้ว)
 services/ai-engine/samples/output/*
 !services/ai-engine/samples/output/.gitkeep
+!services/ai-engine/samples/output/*.png
 services/database/backup/*.db
 services/database/backup/*.sql.gz
 

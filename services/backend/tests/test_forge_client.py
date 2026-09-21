@@ -44,3 +44,21 @@ def test_default_ai_engine_url_points_at_ai_engine(monkeypatch):
 
     app = create_app({"TESTING": True, "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:"})
     assert app.config["AI_ENGINE_URL"] == "http://127.0.0.1:8000"
+
+
+def test_generate_error_does_not_leak_internal_address():
+    """[กรณีทดสอบ]: ai-engine ต่อไม่ได้หรือตอบผิด -> ข้อความที่ route ส่งให้ browser ต้องไม่มี host/port ภายใน"""
+    import pytest
+    import requests
+    from app.services.forge_client import ForgeClientError
+
+    app = create_app({"TESTING": True, "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
+                      "AI_ENGINE_URL": "http://10.0.0.5:8000"})
+    refused = requests.exceptions.ConnectionError(
+        "HTTPConnectionPool(host='10.0.0.5', port=8000): Max retries exceeded")
+    for side_effect, reply in ((refused, None), (None, Mock(status_code=503))):
+        with app.app_context(),                 patch("app.services.forge_client.requests.post", side_effect=side_effect, return_value=reply),                 pytest.raises(ForgeClientError) as failure:
+            generate_image(prompt="cat")
+        assert failure.value.status_code == 502
+        message = failure.value.message
+        assert "10.0.0.5" not in message and "8000" not in message and "http" not in message, message

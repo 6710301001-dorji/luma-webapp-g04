@@ -1,16 +1,12 @@
 /**
  * LUMA — Register form
  * -------------------------------------------------------------------------
- * ตอนนี้ใช้ js/mock-auth.js จำลอง backend ไปก่อน (ดูคอมเมนต์ในไฟล์นั้น)
- * เพราะ #32/#49 ปิด contract แล้ว แต่ backend ตัวจริงยังไม่รันขึ้นมา
- *
- * พอ backend จริงพร้อมใช้งาน ให้ลบ TODO ด้านล่างออก แล้วเรียก fetch()
- * ตรงตาม docs/API_CONTRACT.md แทน (เอา mock-auth.js ออกจาก register.html ด้วย)
+ * สมัครผ่าน POST /api/auth/register (backend จริง) แล้วพาไปหน้า login
  *
  * ห้าม hardcode localhost/IP — อ่าน API base จาก window.LUMA_CONFIG เท่านั้น
  *
- * หมายเหตุ: การเช็ค "อีเมลนี้มีคนใช้แล้วหรือยัง" ต้องทำที่ backend จริงเท่านั้น
- * (ดู #49 "กันการเดาว่ามีบัญชีอยู่จริง") mock-auth.js จำลองพฤติกรรมนี้ไว้แล้ว
+ * หมายเหตุ: การเช็ค "อีเมลนี้มีคนใช้แล้วหรือยัง" ทำที่ backend เท่านั้น
+ * (ดู #49 "กันการเดาว่ามีบัญชีอยู่จริง")
  */
 
 const API_BASE = window.LUMA_CONFIG ? window.LUMA_CONFIG.apiBase : "";
@@ -45,27 +41,20 @@ function initRegisterForm() {
 
     setLoading(true);
     try {
-      // TODO(#49): สลับเป็น fetch จริงตอน backend รันได้แล้ว เช่น
-      //
-      // const res = await fetch(`${API_BASE}/api/register`, {
-      //   method: "POST",
-      //   headers: { "Content-Type": "application/json" },
-      //   body: JSON.stringify({ displayName, email, password }),
-      // });
-      // const data = await res.json();
-      // if (!res.ok) throw new Error(data.message || "สมัครสมาชิกไม่สำเร็จ");
-
-      const result = await window.LUMA_MOCK_AUTH.mockRegister({
-        displayName,
-        email,
-        password,
+      const res = await fetch(`${API_BASE}/api/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...window.csrfHeaders() },
+        body: JSON.stringify({ displayName, email, password }),
       });
-      if (!result.ok) {
-        showError(result.data.message);
+      // 500 จาก proxy/server อาจไม่ใช่ JSON — อย่าให้ res.json() โยนแทนข้อความจริง
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showError(data.error || `สมัครสมาชิกไม่สำเร็จ (HTTP ${res.status})`);
         return;
       }
 
-      window.location.href = "login.html";
+      // login.js แสดงข้อความ "สมัครสำเร็จ" เมื่อเห็น ?registered=true
+      window.location.href = "login.html?registered=true";
     } catch (err) {
       showError(err.message || "เกิดข้อผิดพลาด ลองใหม่อีกครั้ง");
     } finally {

@@ -97,6 +97,25 @@ def test_login_unregistered_email_rejected():
     assert res.status_code == 401
 
 
+def test_auth_rejects_non_string_fields_and_non_object_body():
+    """[กรณีทดสอบ]: ฟิลด์ที่ไม่ใช่ string หรือ body เป็น JSON array ต้องได้ 400 ไม่ใช่ 500"""
+    from app.routes.auth import _login_failed_attempts
+    _login_failed_attempts.clear()  # กัน 429 จาก test อื่นที่ login ผิดไว้ก่อน
+
+    _, client = _make_client()
+    cases = [
+        ("/api/auth/register", {"email": None, "displayName": "x", "password": "password123"}),
+        ("/api/auth/register", {"email": "a@luma.ai", "displayName": 5, "password": "password123"}),  # no-secret-check
+        ("/api/auth/register", {"email": "a@luma.ai", "displayName": "x", "password": 12345678}),  # no-secret-check
+        ("/api/auth/register", [1]),
+        ("/api/auth/login", {"email": 5, "password": "password123"}),
+        ("/api/auth/login", [1]),
+    ]
+    for path, body in cases:
+        res = client.post(path, json=body)
+        assert res.status_code == 400, f"{path} {body} ควรได้ 400 แต่ได้ {res.status_code}"
+
+
 # ==============================================================================
 # ตัวรันสำหรับสั่งรันไฟล์นี้โดยตรง (Direct Runner)
 # ==============================================================================
@@ -109,6 +128,7 @@ if __name__ == "__main__":
         ("ตรวจสอบ Flow สมบูรณ์ (Register -> Login -> Me -> Logout)", test_auth_full_flow),
         ("login ด้วยรหัสผ่านผิด ต้องถูกปฏิเสธ", test_login_wrong_password_rejected),
         ("login ด้วยอีเมลที่ไม่เคยสมัคร ต้องถูกปฏิเสธ", test_login_unregistered_email_rejected),
+        ("ฟิลด์ไม่ใช่ string / body ไม่ใช่ object -> 400", test_auth_rejects_non_string_fields_and_non_object_body),
     ]
 
     passed = 0

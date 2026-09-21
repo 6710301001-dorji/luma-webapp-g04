@@ -46,7 +46,53 @@ def test_generation_forwards_defaults_and_extracts_real_forge_seed(monkeypatch):
     assert sent["url"] == "http://forge-host:7860/sdapi/v1/txt2img"
     assert sent["body"]["cfg_scale"] == 8
     assert sent["body"]["seed"] == -1
+    assert sent["body"]["sampler_name"] == "DPM++ 2M"
+    assert sent["body"]["scheduler"] == "Karras"
     assert sent["timeout"] == 120
+
+
+@pytest.mark.parametrize("body,expected_sampler,expected_scheduler", [
+    ({"sampler_name": "DPM++ 2M Karras"}, "DPM++ 2M", "Karras"),
+    ({"sampler_name": "DPM++ SDE Karras"}, "DPM++ SDE", "Karras"),
+    ({"sampler_name": "DPM++ 2M SDE Karras"}, "DPM++ 2M SDE", "Karras"),
+    ({"sampler_name": "Euler a", "scheduler": "karras"}, "Euler a", "Karras"),
+    ({"scheduler": "Exponential"}, "DPM++ 2M", "Exponential"),
+])
+def test_scheduler_and_legacy_sampler_are_forwarded_separately(monkeypatch, body, expected_sampler, expected_scheduler):
+    sent = {}
+
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"images": [VALID_PNG], "info": json.dumps({"seed": 42})}
+
+    def post(url, json, timeout):
+        sent.update(json)
+        return Response()
+
+    monkeypatch.setattr(requests, "post", post)
+    response = create_app({"TESTING": True, "FORGE_URL": "http://forge-host:7860"}).test_client().post(
+        "/forge/txt2img", json={"prompt": "a tree", **body}
+    )
+    assert response.status_code == 200
+    assert sent["sampler_name"] == expected_sampler
+    assert sent["scheduler"] == expected_scheduler
+
+
+@pytest.mark.parametrize("body", [
+    {"scheduler": ""},
+    {"scheduler": None},
+    {"scheduler": 123},
+    {"sampler_name": "DPM++ 2M Karras", "scheduler": "Exponential"},
+])
+def test_invalid_or_conflicting_scheduler_is_rejected_before_forge(monkeypatch, body):
+    monkeypatch.setattr(requests, "post", lambda *args, **kwargs: pytest.fail("Forge was called"))
+    response = create_app({"TESTING": True}).test_client().post(
+        "/forge/txt2img", json={"prompt": "a tree", **body}
+    )
+    assert response.status_code == 400
 
 
 @pytest.mark.parametrize("body", [{"prompt": ""}, {"prompt": "x", "steps": True}])

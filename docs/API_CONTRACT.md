@@ -82,6 +82,7 @@
 | `steps` | int | 1–50 | 20 | Lecture 2 หน้า 7 (20–60 พอ) |
 | `cfg_scale` | number | 1–30 | **8** | **Lecture 2 หน้า 10 แนะนำ 8–14** |
 | `sampler_name` | string | รายชื่อที่ Forge รองรับ | `"DPM++ 2M Karras"` | Lecture 2 หน้า 8–10 |
+| `scheduler` | string (optional) | Nonempty Forge scheduler name; see AI engine rules below | Omitted; legacy Karras names imply `Karras` | AI engine support; backend forwarding requires coordination |
 | `seed` | int | `-1` = สุ่ม | `-1` | Lecture 2 หน้า 5–6 |
 | `width` / `height` | int | 512 / 768 / 1024 | 512 | – |
 
@@ -177,6 +178,33 @@ backend เรียกผ่าน `AI_ENGINE_URL` ที่อ่านจา�
 
 > `seed_used` สำคัญ — ถ้าส่ง `seed: -1` ผู้ใช้ต้องรู้ว่าได้ seed อะไรเพื่อทำซ้ำได้
 
+#### Optional scheduler for txt2img
+
+`POST /forge/txt2img` accepts `scheduler` as an optional nonempty string.
+Use a scheduler name supported by the connected Forge installation, for example
+`"Karras"`. The bridge does not maintain a fixed allowlist: it trims surrounding
+whitespace, normalizes any casing of `"karras"` to `"Karras"`, and forwards other
+nonempty names unchanged. Forge determines whether those other names are supported.
+Null, empty, whitespace-only, and non-string values receive HTTP 400.
+
+- Legacy `DPM++ 2M Karras`, `DPM++ SDE Karras`, and `DPM++ 2M SDE Karras`
+  are translated into the corresponding plain sampler plus `scheduler: "Karras"`.
+  Pairing any of these names with a different scheduler receives HTTP 400.
+- If both fields are omitted, the outgoing request uses `DPM++ 2M` and `Karras`.
+- If only `scheduler` is supplied, `sampler_name` defaults to `DPM++ 2M`.
+- If a plain sampler is supplied without `scheduler`, the scheduler field is
+  omitted from the outgoing request and Forge chooses its default.
+
+Example AI engine request:
+```json
+{"prompt":"a tree","sampler_name":"DPM++ 2M","scheduler":"Karras","seed":123}
+```
+
+This addition applies to the AI engine txt2img endpoint. The backend owner must
+confirm forwarding `scheduler` from `/api/generate`; the existing backend's
+legacy sampler value remains supported. It does not add scheduler support to
+img2img. Response fields remain `images` and `seed_used`.
+
 ### `POST /forge/img2img`
 ```json
 { "init_image": "<base64>", "prompt": "...", "denoising_strength": 0.7, "mask": "<base64|null>", "mode": "text|sketch|inpaint|inpaint-sketch" }
@@ -211,7 +239,7 @@ backend เรียกผ่าน `AI_ENGINE_URL` ที่อ่านจา�
 | # | ระหว่าง | เรื่อง | สถานะ |
 |---|---|---|---|
 | 1 | คน 1 ↔ คน 2 | ชื่อตาราง/คอลัมน์สุดท้าย | ⬜ |
-| 2 | คน 1 ↔ คน 2 | `GET /api/assets` รับ param อะไร ตอบรูปแบบไหน | ⬜ (รูปแบบ param/response ตรงกับที่ `gallery.js` ใช้จริงแล้ว: `page`/`per_page`/`q` → `{items, page, per_page, total}` — implement ใน #80-split PR A. บังคับ login แล้ว (401 ถ้าไม่ได้ login) แต่ **ยังไม่กรองตามเจ้าของ** เพราะ `/api/generate` ยังไม่ set `user_id` — ยังไม่ครบตามสเปก "ต้องล็อกอิน + เป็นเจ้าของ" ในข้อ `GET /api/assets/<id>/image`) |
+| 2 | คน 1 ↔ คน 2 | `GET /api/assets` รับ param อะไร ตอบรูปแบบไหน | ⬜ **ครบแล้ว**: `page`/`per_page`/`q` → `{items, page, per_page, total}` ตรงกับ `gallery.js` · ต้อง login + เห็นเฉพาะของตัวเอง · ภาพของคนอื่นตอบ 404 (#115) · **ยังไม่ครบ**: param `tags` / `sort` ในตารางข้างบน (รอตาราง tags #17/#24) · asset เก่าที่ `user_id` เป็น NULL ถูกซ่อนจากทุกคนแต่ยังไม่ลบ รอตัดสินใจใน #97 |
 | 3 | คน 1 ↔ คน 3 | `POST /api/generate` ตอบแบบ sync หรือ queued | ⬜ |
 | 4 | คน 1 ↔ คน 3 | เส้นทาง `/pipeline/<stage>/<operation>` | ⬜ |
 | 5 | **คน 2 ↔ คน 3** | **รูปแบบ auto-tag ที่ `04_features` ส่งให้ Asset Hub** | ⬜ |

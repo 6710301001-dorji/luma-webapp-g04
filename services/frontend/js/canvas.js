@@ -20,6 +20,12 @@
 
     let currentImageBase64 = null;
 
+    // จานสีที่โชว์อยู่ต้องเป็นของภาพปัจจุบันเสมอ — ล้างทิ้งตอนเปลี่ยนภาพและตอนสกัดสีล้ม
+    function clearPalette() {
+      if (paletteSwatches) paletteSwatches.innerHTML = "";
+      if (paletteContainer) paletteContainer.setAttribute("hidden", "");
+    }
+
     if (uploadInput) {
       uploadInput.addEventListener("change", (e) => {
         const file = e.target.files[0];
@@ -28,6 +34,7 @@
         const reader = new FileReader();
         reader.onload = (event) => {
           currentImageBase64 = event.target.result;
+          clearPalette();
           previewImg.src = currentImageBase64;
           previewImg.removeAttribute("hidden");
           placeholder.setAttribute("hidden", "");
@@ -50,12 +57,16 @@
         try {
           const res = await fetch(`${API_BASE}/api/pipeline/palette/extract`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", ...window.csrfHeaders() },
             body: JSON.stringify({ image: currentImageBase64 }),
           });
 
-          const data = await res.json();
-          const colors = data.colors || ["#2F3BA3", "#5C6BC0", "#FF6B6B", "#4ECDC4", "#1A535C"];
+          // ห้าม fallback เป็นสีตายตัว — ผู้ใช้จะเข้าใจว่าเป็นสีจากภาพของตัวเอง
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !Array.isArray(data.colors)) {
+            throw new Error(data.error || `HTTP ${res.status}`);
+          }
+          const colors = data.colors;
 
           paletteSwatches.innerHTML = "";
           colors.forEach((hex) => {
@@ -80,6 +91,7 @@
           paletteContainer.removeAttribute("hidden");
         } catch (err) {
           console.error("Palette extract error:", err);
+          clearPalette();
           alert("ไม่สามารถสกัดสีได้ ตรวจสอบการเชื่อมต่อเซิร์ฟเวอร์");
         } finally {
           extractPaletteBtn.disabled = false;
@@ -98,15 +110,16 @@
         try {
           const res = await fetch(`${API_BASE}/api/pipeline/segmentation/remove_bg`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", ...window.csrfHeaders() },
             body: JSON.stringify({ image: currentImageBase64 }),
           });
 
-          const data = await res.json();
-          if (data.result_image) {
-            previewImg.src = data.result_image;
-            alert("ลบพื้นหลังสำเร็จเรียบร้อย");
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !data.result_image) {
+            throw new Error(data.error || `HTTP ${res.status}`);
           }
+          previewImg.src = data.result_image;
+          alert("ลบพื้นหลังสำเร็จเรียบร้อย");
         } catch (err) {
           console.error("Remove bg error:", err);
           alert("ไม่สามารถลบพื้นหลังได้ในขณะนี้");

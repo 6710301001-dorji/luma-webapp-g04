@@ -62,6 +62,7 @@
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            ...window.csrfHeaders(),
           },
           credentials: "include",
           body: JSON.stringify({

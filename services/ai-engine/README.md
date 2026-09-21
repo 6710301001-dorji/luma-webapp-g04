@@ -15,6 +15,17 @@ The LUMA backend calls `POST http://127.0.0.1:8000/forge/txt2img` with JSON such
 `/sdapi/v1/txt2img` endpoint and returns `{"images":["<base64>"],"seed_used":123}`.
 The backend stores the image; this service does not return a local file path.
 
+### Sampler and scheduler on newer Forge versions
+
+`POST /forge/txt2img` also accepts an optional `scheduler` string. The legacy
+default `DPM++ 2M Karras` is sent to Forge as
+`{"sampler_name":"DPM++ 2M","scheduler":"Karras"}`. The same translation
+applies to `DPM++ SDE Karras` and `DPM++ 2M SDE Karras`. A caller may instead
+send separate values such as `{"sampler_name":"Euler a","scheduler":"Karras"}`.
+Conflicting combinations receive HTTP 400. The API response still contains
+`images` and `seed_used`; actual scheduler behavior should be checked with real
+Forge when it is available.
+
 ## Image-to-image bridge
 
 `POST /forge/img2img` accepts a plain base64 `init_image`, `prompt`, and
@@ -31,6 +42,7 @@ Forge's real `/sdapi/v1/img2img` API uses `init_images`. The current project
 mock accepts `init_image` at that path instead, so bridge tests verify the real
 Forge request shape with a stubbed HTTP response. Visual comparison of low and
 high denoising strengths still requires a running Forge model.
+
 ## Smart Canvas palette route
 
 `POST /pipeline/04_features/color_palette` accepts plain base64 image bytes:

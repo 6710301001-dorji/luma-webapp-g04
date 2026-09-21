@@ -54,15 +54,17 @@ def generate_image(
     try:
         response = requests.post(endpoint, json=payload, timeout=timeout)
     except requests.exceptions.RequestException as exc:
+        # host/port ภายในอยู่ใน log เท่านั้น — ข้อความที่ส่งให้ browser ต้องไม่มี
+        current_app.logger.error("เชื่อมต่อ AI engine ที่ %s ไม่สำเร็จ: %s", endpoint, exc)
         raise ForgeClientError(
-            f"เชื่อมต่อ AI engine ที่ {endpoint} ไม่สำเร็จ: {exc} "
-            f"/ Could not reach AI engine at {endpoint}",
+            "เชื่อมต่อ AI engine ไม่สำเร็จ / Could not reach AI engine",
             status_code=502,
         ) from exc
 
     if response.status_code != 200:
+        current_app.logger.error("AI engine ที่ %s ตอบกลับด้วยสถานะ %s", endpoint, response.status_code)
         raise ForgeClientError(
-            f"AI engine ที่ {endpoint} ตอบกลับด้วยสถานะ {response.status_code} "
+            f"AI engine ตอบกลับด้วยสถานะ {response.status_code} "
             f"/ AI engine returned status {response.status_code}",
             status_code=502,
         )
