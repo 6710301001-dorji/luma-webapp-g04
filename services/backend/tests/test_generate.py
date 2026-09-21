@@ -127,7 +127,7 @@ def test_generate_rejects_booleans_in_numeric_fields():
     """
     from unittest.mock import patch
 
-    client = create_app({"TESTING": True, "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:"}).test_client()
+    client = _logged_in_client()
     with patch("app.routes.api.generate_image", side_effect=_must_not_reach_ai_engine):
         for field in ("steps", "cfg_scale", "seed", "width", "height"):
             for value in (True, False):
