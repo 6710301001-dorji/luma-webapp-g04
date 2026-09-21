@@ -82,6 +82,19 @@ measure from job submission through `done`, including polling time.
 
 > เก็บ output ทั้งหมดไว้เป็นไฟล์ ไม่ใช่แค่ print ออกจอ — ต้องเอาไปใส่รายงาน
 
+## Implementation
+
+`quality_metrics.py` provides the first evaluation task from issue #66:
+
+- `image_quality()` calculates PSNR and SSIM for grayscale or BGR images.
+- `before_after_table()` requires results for all eight implemented enhancement
+  methods: gamma, log, contrast stretch, equalization, histogram matching,
+  box, Gaussian, and median. It fills every metric column.
+- `write_csv()` exports the complete table for the report.
+
+Use a clean reference image, its degraded `before` image, and the output from
+each enhancement operation. This module measures existing results and does not
+import Flask or duplicate the enhancement algorithms.
 ## Segmentation metrics
 
 `segmentation_metrics.py` measures binary masks for issue #67:
