@@ -65,13 +65,27 @@
 `quality_metrics.py` provides the first evaluation task from issue #66:
 
 - `image_quality()` calculates PSNR and SSIM for grayscale or BGR images.
-- `before_after_table()` requires results for gamma, equalization, box,
-  Gaussian, and median enhancement, then fills every metric column.
+- `before_after_table()` requires results for all eight implemented enhancement
+  methods: gamma, log, contrast stretch, equalization, histogram matching,
+  box, Gaussian, and median. It fills every metric column.
 - `write_csv()` exports the complete table for the report.
 
 Use a clean reference image, its degraded `before` image, and the output from
 each enhancement operation. This module measures existing results and does not
 import Flask or duplicate the enhancement algorithms.
+## Segmentation metrics
+
+`segmentation_metrics.py` measures binary masks for issue #67:
+
+- IoU measures overlap with the hand-drawn ground truth.
+- Precision measures how many selected pixels really belong to the object.
+- Recall measures how many ground-truth object pixels were found.
+- Pixel confusion counts show true/false positives and negatives.
+- `evaluate_cases()` requires at least five named mask pairs.
+- `write_csv()` saves a complete per-case table for the report.
+
+Five reproducible fixtures are stored in `../../samples/segmentation/`. They
+exercise the code but do not replace evaluation on final project photographs.
 
 ## เชื่อมกับเมธอดในสไลด์
 

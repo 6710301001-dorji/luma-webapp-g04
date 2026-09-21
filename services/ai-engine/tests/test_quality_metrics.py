@@ -15,6 +15,14 @@ quality_metrics = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(quality_metrics)
 
 
+def _load_enhancement_module(name):
+    path = MODULE_PATH.parents[1] / "02_enhancement" / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _sample_images():
     clean = np.zeros((64, 64), dtype=np.uint8)
     cv2.rectangle(clean, (12, 12), (51, 51), 180, -1)
@@ -50,16 +58,22 @@ def test_color_images_are_supported():
 
 def test_before_after_table_has_every_method_and_no_empty_cells():
     clean, noisy = _sample_images()
+    points = _load_enhancement_module("point_operations")
+    histograms = _load_enhancement_module("histogram_mapping")
+    filters = _load_enhancement_module("spatial_filters")
     enhanced = {
-        "gamma": cv2.LUT(noisy, np.arange(256, dtype=np.uint8)),
-        "equalization": cv2.equalizeHist(noisy),
-        "box": cv2.blur(noisy, (3, 3)),
-        "gaussian": cv2.GaussianBlur(noisy, (3, 3), 0),
-        "median": cv2.medianBlur(noisy, 3),
+        "gamma": points.gamma(noisy, 0.8),
+        "log": points.log_transform(noisy),
+        "contrast_stretch": points.contrast_stretch(noisy),
+        "equalization": histograms.equalize(noisy),
+        "histogram_matching": histograms.match_histogram(noisy, clean),
+        "box": filters.box(noisy),
+        "gaussian": filters.gaussian(noisy),
+        "median": filters.median(noisy),
     }
     rows = quality_metrics.before_after_table(clean, noisy, enhanced)
     assert [row["method"] for row in rows] == list(quality_metrics.REQUIRED_ENHANCEMENT_METHODS)
-    assert all(value is not None for row in rows for value in row.values())
+    assert all(np.isfinite(value) for row in rows for key, value in row.items() if key != "method")
     assert rows[-1]["after_psnr"] > rows[-1]["before_psnr"]
 
 
@@ -85,7 +99,7 @@ def test_csv_contains_header_and_all_rows(tmp_path):
     quality_metrics.write_csv(rows, output)
     with output.open(newline="", encoding="utf-8") as source:
         saved = list(csv.DictReader(source))
-    assert len(saved) == 5
+    assert len(saved) == 8
     assert saved[0]["method"] == "gamma"
     assert all(value != "" for row in saved for value in row.values())
 
@@ -95,4 +109,3 @@ def test_invalid_or_mismatched_images_are_rejected(candidate):
     reference = np.zeros((8, 8), dtype=np.uint8)
     with pytest.raises(ValueError):
         quality_metrics.image_quality(reference, candidate)
-

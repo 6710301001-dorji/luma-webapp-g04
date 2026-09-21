@@ -7,7 +7,10 @@ import numpy as np
 from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 
 
-REQUIRED_ENHANCEMENT_METHODS = ("gamma", "equalization", "box", "gaussian", "median")
+REQUIRED_ENHANCEMENT_METHODS = (
+    "gamma", "log", "contrast_stretch", "equalization", "histogram_matching",
+    "box", "gaussian", "median",
+)
 
 
 def _check_pair(reference, candidate):

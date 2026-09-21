@@ -1,5 +1,23 @@
 # 02_enhancement — ตรวจสอบและปรับปรุงคุณภาพภาพ
 
+## Implemented quality assessment (task #52)
+
+`histogram.py` accepts `uint8` grayscale or BGR NumPy arrays. It calculates
+256-bin histograms and the four population statistics (mean, variance,
+skewness, excess kurtosis) per channel. A constant image has zero skewness
+and kurtosis by convention instead of undefined values.
+
+`assess_quality(image)` uses grayscale mean to flag dark (<64) and bright
+(>192) images, and the 5th-95th percentile span to flag low contrast (<64).
+These are starting thresholds; they can be tuned after evaluating real images.
+`save_histogram_plot(image, path)` writes a plot with a headless Matplotlib
+backend. Generate a sample image and its plot with
+`python services/ai-engine/pipeline/02_enhancement/generate_histogram_sample.py`.
+The plot is written to the ignored `samples/output/` directory.
+
+Run `python -m pytest services/ai-engine/tests/test_histogram.py -q` from the
+repository root to check the known-value examples in task #52.
+
 👤 คนที่ 3 — AI + Image Processing Engine · **ส่วนย่อยที่ 2/5** ตามเกณฑ์อาจารย์ (Lecture 1 หน้า 6)
 
 ## หน้าที่ 2 อย่าง
@@ -36,6 +54,14 @@ contrast = (Imax − Imin) / (Imax + Imin)
 
 ## B. Enhancement — Point Operation (Lecture 4)
 
+Implemented in `point_operations.py`: `gamma(image, value)`, `log_transform(image)`,
+and `contrast_stretch(image)`. Each accepts a nonempty 2D grayscale or 3D color
+NumPy `uint8` array and returns a new `uint8` array of the same shape. Gamma
+values below 1 brighten the image; 1 returns identical pixel values. Contrast
+stretching maps the global minimum and maximum to 0 and 255; a constant image
+is returned unchanged because it has no range to stretch. These are pure image
+operations; the HTTP pipeline route is still to be wired to the team contract.
+
 `g(x,y) = T[f(x,y)]` — พิกเซลใหม่ขึ้นกับพิกเซลเดิมตำแหน่งเดียวกันเท่านั้น
 
 | เทคนิค | สูตร | หน้า | ใช้เมื่อ |
@@ -47,6 +73,14 @@ contrast = (Imax − Imin) / (Imax + Imin)
 | **Histogram Equalization** | mapping จาก cumulative histogram → เส้นตรง | 36–42 | ภาพ low contrast · `cv.equalizeHist()` |
 | **Histogram Specification** | equalize แล้ว inverse-equalize ไปหา histogram เป้าหมาย | 44–50 | อยากให้ภาพ A มีโทนเหมือนภาพ B |
 
+`histogram_mapping.py` implements `equalize(image)` and
+`match_histogram(image, reference)` for `uint8` grayscale or BGR images.
+For color images, both functions change only HSV value before converting back
+to BGR, preserving hue as closely as 8-bit conversion permits. Matching uses
+the reference image's cumulative intensity distribution; the reference can have
+a different size from the input. These image functions are independent of the
+HTTP pipeline route, which still needs the team's agreed API contract.
+
 > **หน้า 10 ตั้งคำถามไว้**: ถ้าไม่แปลงกลับเป็น `uint8` จะเกิดอะไรขึ้น? ถ้า dtype เป็น float ทำงานได้ไหม?
 > → ต้อง clamp ค่าให้อยู่ใน 0–255 และแปลง dtype กลับเสมอ ไม่งั้นค่าล้น
 
@@ -57,6 +91,26 @@ contrast = (Imax − Imin) / (Imax + Imin)
 `I'(u,v) = Σ_{(i,j)∈R_H} I(u+i, v+j) · H(i,j)`
 
 ### Linear filter
+
+`spatial_filters.py` implements `box`, `gaussian`, and `median` for `uint8`
+grayscale or BGR images. It preserves image dimensions and pads borders by
+reflection for the linear filters and replication for median (OpenCV behavior).
+`gaussian_kernel`, `filter_2d`, `filter_separable`, and
+`benchmark_separability` demonstrate Gaussian separability. The benchmark
+returns both measured runtimes, their ratio, and the maximum pixel difference.
+
+Example measurement on an Apple M2, 1024×1024 random grayscale image, 15×15
+Gaussian kernel, 10 timed runs per method (median runtime): full 2D **23.26 ms**,
+two 1D passes **0.97 ms**, **24.08× faster**, maximum float pixel difference
+**0.000077**. Runtime varies by machine and image size. Reproduce with:
+
+```python
+import numpy as np
+from spatial_filters import benchmark_separability
+
+image = np.random.default_rng(2026).integers(0, 256, (1024, 1024), dtype=np.uint8)
+print(benchmark_separability(image, size=15, repeats=10))
+```
 
 | filter | หน้า | หมายเหตุ |
 |---|---|---|
