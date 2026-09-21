@@ -33,13 +33,17 @@ SQLALCHEMY_TRACK_MODIFICATIONS = False
 # NEVER hardcode "localhost" in application code - read it from here.
 # The project has to run across separate machines (Lecture 4 p.54).
 #
-# Same machine while developing:
-AI_ENGINE_URL     = "http://127.0.0.1:8000"
-FORGE_AI_ENDPOINT = "http://127.0.0.1:7860/sdapi/v1/txt2img"
+# The backend always generates through the ai-engine service, never Forge
+# directly. ai-engine talks to Forge using its own FORGE_URL setting.
+#
+# Same machine while developing (run services/ai-engine/app.py):
+AI_ENGINE_URL = "http://127.0.0.1:8000"
+#
+# No ai-engine or GPU? tools/mock_forge_server.py serves the same routes:
+# AI_ENGINE_URL = "http://127.0.0.1:7860"
 #
 # Real 3-machine deployment - replace with the actual IP of the AI box:
-# AI_ENGINE_URL     = "http://192.168.1.30:8000"
-# FORGE_AI_ENDPOINT = "http://192.168.1.30:7860/sdapi/v1/txt2img"
+# AI_ENGINE_URL = "http://192.168.1.30:8000"
 
 # --- Generation defaults ----------------------------------------------------
 # Values follow what the lecturer recommends in Lecture 2:
