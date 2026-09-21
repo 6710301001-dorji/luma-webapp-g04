@@ -35,6 +35,12 @@ def handle_generate():
         return jsonify({"error": "negative_prompt ต้องเป็นข้อความ / negative_prompt must be a string"}), 400
     negative_prompt = negative_prompt.strip()
 
+    # isinstance(True, int) เป็น True และ int(True) = 1 — ต้องกัน bool ก่อนแปลงเป็นตัวเลข
+    # ไม่งั้น {"steps": true} ผ่านไปถึง ai-engine และ {"seed": false} กลายเป็น seed 0 (API_CONTRACT.md)
+    numeric_fields = ("steps", "cfg_scale", "seed", "width", "height")
+    if any(isinstance(data.get(name), bool) for name in numeric_fields):
+        return jsonify({"error": "steps, cfg_scale, seed, width, height ต้องเป็นตัวเลข ไม่ใช่ true/false"}), 400
+
     # ขอบเขตต้องตรงกับที่ ai-engine (#102) และ API_CONTRACT บังคับ
     # ไม่งั้นค่าที่ผ่านตรงนี้จะไปโดน ai-engine ปฏิเสธ ผู้ใช้เห็น 502 แทน 400
     try:
