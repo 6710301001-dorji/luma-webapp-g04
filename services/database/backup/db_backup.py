@@ -48,7 +48,7 @@ def backup(db_path, backup_dir):
     if not db_path.is_file():
         raise FileNotFoundError(f"ไม่พบฐานข้อมูล: {db_path}")
 
-    _check_ok(db_path)          # SQLite backup API ยอมคัดลอกจากไฟล์ 0 ไบต์ได้
+    _check_readable(db_path)    # SQLite backup API ยอมคัดลอกจากไฟล์ 0 ไบต์ได้
     backup_dir.mkdir(parents=True, exist_ok=True)
 
     # เวลาอาจซ้ำกันบน Windows จึงลองเลขท้ายชื่อ และจองไฟล์แบบไม่ทับของเดิม
@@ -66,7 +66,7 @@ def backup(db_path, backup_dir):
 
     try:
         _copy(db_path, target)
-        _check_ok(target)      # สำเนาที่ได้ต้องเปิดได้และไม่เสีย
+        _check_readable(target)  # สำเนาที่ได้ต้องเปิดได้และไม่เสีย
     except BaseException as error:
         try:
             target.unlink(missing_ok=True)
@@ -82,7 +82,7 @@ def restore(backup_file, db_path):
     if not backup_file.is_file():
         raise FileNotFoundError(f"ไม่พบไฟล์ backup: {backup_file}")
 
-    _check_ok(backup_file)     # ไฟล์เสีย → หยุดตรงนี้ ฐานข้อมูลปัจจุบันยังไม่ถูกแตะ
+    _check_is_project_db(backup_file)  # ไม่ผ่าน → หยุดตรงนี้ ฐานปัจจุบันยังไม่ถูกแตะ
     _copy(backup_file, Path(db_path))
 
 
@@ -96,20 +96,43 @@ def _copy(src, dst):
         source.backup(dest)
 
 
-def _check_ok(path):
-    """ตรวจว่าไฟล์เป็นฐาน LUMA ที่เปิดได้และข้อมูลภายในไม่เสีย"""
+def _check_readable(path):
+    """ไฟล์ต้องเป็นฐาน SQLite ที่เปิดได้และข้อมูลภายในไม่เสีย — ไม่สนว่ามีตารางอะไร
+
+    ใช้กับ backup() ทั้งต้นทางและสำเนา เพราะ backup แค่คัดลอกสิ่งที่มีอยู่
+    ไม่ควรมีสิทธิ์ปฏิเสธฐานของโปรเจกต์เองเพียงเพราะยังอยู่ revision เก่า —
+    ช่วงก่อนรัน migration คือตอนที่ต้องการ backup มากที่สุด
+
+    ตรวจ 16 ไบต์แรกก่อน เพราะไฟล์ 0 ไบต์ผ่าน integrity_check ได้
+    (SQLite ถือว่าไฟล์ว่างเป็นฐานเปล่าที่ถูกต้อง)
+    """
     with path.open("rb") as file:
         if file.read(16) != b"SQLite format 3\x00":
             raise sqlite3.DatabaseError(f"ไฟล์ไม่ใช่ฐานข้อมูล SQLite: {path}")
 
     with closing(sqlite3.connect(path)) as conn:
         result = conn.execute("PRAGMA integrity_check").fetchone()[0]
-        if result != "ok":
-            raise sqlite3.DatabaseError(f"ไฟล์ฐานข้อมูลเสีย ({result}): {path}")
+    if result != "ok":
+        raise sqlite3.DatabaseError(f"ไฟล์ฐานข้อมูลเสีย ({result}): {path}")
 
+
+def _check_is_project_db(path):
+    """ตรวจเพิ่มว่าเป็นฐานของโปรเจกต์นี้ — ใช้ก่อน restore เท่านั้น
+
+    restore เขียนทับฐานจริง จึงต้องกันไม่ให้เอาฐานของแอปอื่นมาทับโดยไม่ตั้งใจ
+
+    ตรวจด้วย alembic_version ไม่ใช่ users/assets เพราะ alembic สร้างตารางนี้
+    ตั้งแต่ migration แรกและมีอยู่ทุก revision ส่วน users เพิ่งเกิดใน deba60c08f36
+    ฐานที่ยังอยู่ revision 18566175f613 จึงมีแต่ assets ทั้งที่เป็นฐานของโปรเจกต์นี้จริง
+    """
+    _check_readable(path)
+
+    with closing(sqlite3.connect(path)) as conn:
         tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        if not {"users", "assets"}.issubset(tables):
-            raise sqlite3.DatabaseError(f"ไฟล์ไม่ใช่ฐานข้อมูล LUMA (ไม่มี users/assets): {path}")
+    if "alembic_version" not in tables:
+        raise sqlite3.DatabaseError(
+            f"ไฟล์ไม่ใช่ฐานข้อมูลของโปรเจกต์นี้ (ไม่มีตาราง alembic_version): {path}"
+        )
 
 
 def default_db_path():

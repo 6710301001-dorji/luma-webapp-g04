@@ -139,7 +139,7 @@ def test_failed_backup_does_not_leave_a_broken_file(db_file, tmp_path):
     """ตรวจความสมบูรณ์ไม่ผ่าน ต้องไม่เหลือไฟล์ที่ดูเหมือน backup ใช้ได้"""
     backup_dir = tmp_path / "backups"
 
-    with patch.object(db_backup, "_check_ok", side_effect=sqlite3.DatabaseError("broken")):
+    with patch.object(db_backup, "_check_readable", side_effect=sqlite3.DatabaseError("broken")):
         with pytest.raises(sqlite3.DatabaseError):
             backup(db_file, backup_dir)
 
@@ -243,5 +243,67 @@ def test_restore_from_partly_corrupted_sqlite_keeps_current_db(db_file, tmp_path
 
     with pytest.raises(sqlite3.DatabaseError):
         restore(corrupted, db_file)
+
+    assert count_rows(db_file) == before
+
+
+def _database_at_first_revision(path):
+    """ฐานที่อยู่ revision 18566175f613 — มี assets แล้วแต่ยังไม่มี users
+
+    ลำดับ migration จริงคือ 18566175f613 (สร้าง assets) -> deba60c08f36 (สร้าง users)
+    ฐานที่ค้างอยู่ระหว่างสอง revision นี้เป็นฐานของโปรเจกต์เต็มตัว แค่ยังไม่ถึงตัวล่าสุด
+    """
+    with closing(sqlite3.connect(path)) as conn, conn:
+        conn.execute("CREATE TABLE assets (id INTEGER PRIMARY KEY, prompt TEXT)")
+        conn.execute("INSERT INTO assets (prompt) VALUES ('a tree')")
+        conn.execute("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL)")
+        conn.execute("INSERT INTO alembic_version VALUES ('18566175f613')")
+    return path
+
+
+def test_backup_works_on_a_database_at_an_older_revision(tmp_path):
+    """[กรณีทดสอบ]: ฐานที่ยังไม่มีตาราง users ต้อง backup ได้
+
+    ตอนก่อนรัน migration คือตอนที่ต้องการ backup มากที่สุด ถ้าเครื่องมือปฏิเสธฐาน
+    ที่ยังอยู่ revision เก่า คนจะ backup ไม่ได้ในจังหวะที่เสี่ยงที่สุดพอดี
+    """
+    source = _database_at_first_revision(tmp_path / "old.db")
+
+    target = backup(source, tmp_path / "backups")
+
+    assert target.is_file()
+    with closing(sqlite3.connect(target)) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM assets").fetchone()[0] == 1
+
+
+def test_restore_works_from_a_backup_taken_at_an_older_revision(tmp_path):
+    """[กรณีทดสอบ]: backup ที่ถ่ายไว้ตอน revision เก่าต้อง restore กลับได้"""
+    source = _database_at_first_revision(tmp_path / "old.db")
+    saved = backup(source, tmp_path / "backups")
+
+    live = tmp_path / "live.db"
+    with closing(sqlite3.connect(live)) as conn, conn:
+        conn.execute("CREATE TABLE assets (id INTEGER PRIMARY KEY, prompt TEXT)")
+        conn.execute("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL)")
+
+    restore(saved, live)
+
+    with closing(sqlite3.connect(live)) as conn:
+        assert conn.execute("SELECT prompt FROM assets").fetchone()[0] == "a tree"
+
+
+def test_restore_rejects_a_database_from_another_app(db_file, tmp_path):
+    """[กรณีทดสอบ]: ฐาน SQLite ที่ไม่ใช่ของโปรเจกต์นี้ต้องไม่ถูกเอามาทับฐานจริง
+
+    ไฟล์เปิดได้และ integrity_check ผ่าน จึงต้องดูที่ alembic_version เพื่อแยกออก
+    """
+    before = count_rows(db_file)
+    stranger = tmp_path / "someone_else.db"
+    with closing(sqlite3.connect(stranger)) as conn, conn:
+        conn.execute("CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT)")
+        conn.execute("INSERT INTO notes (body) VALUES ('not ours')")
+
+    with pytest.raises(sqlite3.DatabaseError, match="alembic_version"):
+        restore(stranger, db_file)
 
     assert count_rows(db_file) == before
