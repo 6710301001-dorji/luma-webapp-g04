@@ -120,6 +120,49 @@ def test_login_with_correct_password_succeeds_and_is_not_rate_limited():
     assert res_correct.status_code == 200
 
 
+# ------------------------------------------------------------------------------
+# CSRF (#51 MUST: "ส่งฟอร์มโดยไม่มี CSRF token -> ถูกปฏิเสธ")
+# test อื่นทั้งหมดรันแบบ TESTING ซึ่งปิด CSRF ไว้เป็นค่าเริ่มต้น — ตรงนี้เปิดเองชัดๆ
+# ------------------------------------------------------------------------------
+_NEW_USER = {"email": "csrf@luma.ai", "displayName": "Csrf", "password": "password123"}  # no-secret-check
+
+
+def _csrf_client():
+    app = create_app({"TESTING": True, "WTF_CSRF_ENABLED": True, "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:"})
+    with app.app_context():
+        db.create_all()
+    return app.test_client()
+
+
+def test_post_without_csrf_token_is_rejected_as_json():
+    """[กรณีทดสอบ]: POST ที่ไม่มี CSRF token ต้องได้ 400 JSON ทุก endpoint ที่เปลี่ยนสถานะ"""
+    client = _csrf_client()
+    for path, body in (("/api/auth/register", _NEW_USER), ("/api/auth/logout", {}), ("/api/generate", {"prompt": "cat"})):
+        res = client.post(path, json=body)
+        assert res.status_code == 400, f"{path} ควรได้ 400 แต่ได้ {res.status_code}"
+        assert "error" in res.get_json(), path
+
+
+def test_post_with_token_from_cookie_is_accepted():
+    """[กรณีทดสอบ]: token ที่ backend ส่งมาใน cookie csrf_token ใส่ header X-CSRFToken แล้วผ่าน (แบบที่ JS ทำ)"""
+    client = _csrf_client()
+    client.get("/api/auth/me")
+    cookie = client.get_cookie("csrf_token")
+    assert cookie is not None, "backend ต้องส่ง cookie csrf_token ให้ JS อ่าน"
+    assert not cookie.http_only, "JS ต้องอ่าน cookie นี้ได้"
+
+    res = client.post("/api/auth/register", json=_NEW_USER, headers={"X-CSRFToken": cookie.value})
+    assert res.status_code == 201
+
+
+def test_post_with_wrong_csrf_token_is_rejected():
+    """[กรณีทดสอบ]: token ปลอมต้องถูกปฏิเสธ"""
+    client = _csrf_client()
+    client.get("/api/auth/me")
+    res = client.post("/api/auth/register", json=_NEW_USER, headers={"X-CSRFToken": "forged"})
+    assert res.status_code == 400
+
+
 # ==============================================================================
 # ตัวรันสำหรับสั่งรันไฟล์นี้โดยตรง (Direct Runner)
 # ==============================================================================
@@ -133,6 +176,9 @@ if __name__ == "__main__":
         ("ตรวจสอบการตั้งค่า Cookie Hardening", test_cookie_security_config),
         ("ตรวจสอบ Rate Limiting บล็อกหลังลองผิด 5 ครั้ง (HTTP 429)", test_login_rate_limiting),
         ("ตรวจสอบรหัสผ่านผิดจริงถูกปฏิเสธ / รหัสถูกผ่านได้", test_login_with_correct_password_succeeds_and_is_not_rate_limited),
+        ("POST ไม่มี CSRF token -> 400 JSON", test_post_without_csrf_token_is_rejected_as_json),
+        ("POST ใส่ token จาก cookie -> ผ่าน", test_post_with_token_from_cookie_is_accepted),
+        ("POST token ปลอม -> 400", test_post_with_wrong_csrf_token_is_rejected),
     ]
 
     passed = 0

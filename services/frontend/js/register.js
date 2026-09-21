@@ -43,7 +43,7 @@ function initRegisterForm() {
     try {
       const res = await fetch(`${API_BASE}/api/auth/register`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...window.csrfHeaders() },
         body: JSON.stringify({ displayName, email, password }),
       });
       // 500 จาก proxy/server อาจไม่ใช่ JSON — อย่าให้ res.json() โยนแทนข้อความจริง

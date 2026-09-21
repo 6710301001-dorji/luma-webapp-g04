@@ -73,6 +73,7 @@
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            ...window.csrfHeaders(),
           },
           body: JSON.stringify(payload),
         });

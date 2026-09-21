@@ -57,7 +57,7 @@
         try {
           const res = await fetch(`${API_BASE}/api/pipeline/palette/extract`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", ...window.csrfHeaders() },
             body: JSON.stringify({ image: currentImageBase64 }),
           });
 
@@ -110,7 +110,7 @@
         try {
           const res = await fetch(`${API_BASE}/api/pipeline/segmentation/remove_bg`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", ...window.csrfHeaders() },
             body: JSON.stringify({ image: currentImageBase64 }),
           });
 
