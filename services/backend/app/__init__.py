@@ -67,7 +67,7 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     app.config.from_mapping(
         SQLALCHEMY_DATABASE_URI=f"sqlite:///{os.path.join(instance_path, 'luma.db')}",
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
-        AI_ENGINE_URL="http://127.0.0.1:7860",
+        AI_ENGINE_URL="http://127.0.0.1:8000",
         FORGE_TIMEOUT_SECONDS=120,
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
