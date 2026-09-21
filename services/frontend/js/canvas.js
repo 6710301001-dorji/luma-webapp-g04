@@ -20,6 +20,12 @@
 
     let currentImageBase64 = null;
 
+    // จานสีที่โชว์อยู่ต้องเป็นของภาพปัจจุบันเสมอ — ล้างทิ้งตอนเปลี่ยนภาพและตอนสกัดสีล้ม
+    function clearPalette() {
+      if (paletteSwatches) paletteSwatches.innerHTML = "";
+      if (paletteContainer) paletteContainer.setAttribute("hidden", "");
+    }
+
     if (uploadInput) {
       uploadInput.addEventListener("change", (e) => {
         const file = e.target.files[0];
@@ -28,6 +34,7 @@
         const reader = new FileReader();
         reader.onload = (event) => {
           currentImageBase64 = event.target.result;
+          clearPalette();
           previewImg.src = currentImageBase64;
           previewImg.removeAttribute("hidden");
           placeholder.setAttribute("hidden", "");
@@ -84,6 +91,7 @@
           paletteContainer.removeAttribute("hidden");
         } catch (err) {
           console.error("Palette extract error:", err);
+          clearPalette();
           alert("ไม่สามารถสกัดสีได้ ตรวจสอบการเชื่อมต่อเซิร์ฟเวอร์");
         } finally {
           extractPaletteBtn.disabled = false;
