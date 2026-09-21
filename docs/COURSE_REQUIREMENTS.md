@@ -392,7 +392,7 @@ def make_hue_mask(hsv, center_deg, tol_deg, sat_min, val_min):
 | 11 | Job queue | ⚠️ | มีตาราง `Job` แต่ไม่มีโค้ดใช้ — `/api/generate` ยังบล็อก 120 วิ |
 | 12 | Nginx reverse proxy (V5) | ❌ | |
 | 13 | แยก frontend (V4) | ❌ | template ยัง render จาก Flask |
-| 14 | Config ด้วย IP ไม่ hardcode localhost | ⚠️ | `FORGE_AI_ENDPOINT` ทำแล้ว ที่อื่นยังไม่ |
+| 14 | Config ด้วย IP ไม่ hardcode localhost | ⚠️ | `AI_ENGINE_URL` ทำแล้ว ที่อื่นยังไม่ |
 | 15 | *(Optional)* LLM แปลงข้อความ → prompt | ❌ | |
 
 ---

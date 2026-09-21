@@ -4,10 +4,24 @@ LUMA Backend Runner
 Entry point สำหรับเริ่มต้นรันเซิร์ฟเวอร์ Flask Backend
 """
 
+import os
+
 from app import create_app
 
 app = create_app()
 
 if __name__ == "__main__":
-    print("🚀 LUMA Backend Server กำลังทำงานที่ http://127.0.0.1:5000")
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    # ค่าเริ่มต้นตาม INSTALL.md: LUMA_HOST=127.0.0.1, LUMA_DEBUG=0
+    host = os.environ.get("LUMA_HOST", "127.0.0.1")
+    debug = os.environ.get("LUMA_DEBUG") == "1"
+
+    # Werkzeug debugger รันโค้ด Python จากหน้าเว็บได้ — เปิดพร้อม bind ออกเครือข่าย
+    # = ทุกเครื่องในวงเดียวกันยึดเครื่องนี้ได้ (ช่องโหว่ F02 ของ v1)
+    if debug and host not in ("127.0.0.1", "localhost"):
+        raise SystemExit(
+            "ห้ามเปิด LUMA_DEBUG=1 พร้อม LUMA_HOST ที่ไม่ใช่ localhost (ดู INSTALL.md) "
+            "/ Refusing to run the debugger on a network-facing host."
+        )
+
+    print(f"🚀 LUMA Backend Server กำลังทำงานที่ http://{host}:5000")
+    app.run(host=host, port=5000, debug=debug)

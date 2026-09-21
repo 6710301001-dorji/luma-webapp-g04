@@ -162,8 +162,8 @@ def get_asset_image(asset_id):
 | `LUMA_HOST` | backend | `127.0.0.1` | ตั้ง `0.0.0.0` ตอนต่อข้ามเครื่อง |
 | `SECRET_KEY` | `instance/config.py` | – | ⛔ ห้ามขึ้น git |
 | `SQLALCHEMY_DATABASE_URI` | `instance/config.py` | `sqlite:///luma.db` | เปลี่ยนเป็น `postgresql://...` ตอนแบบ 4 เครื่อง |
-| `FORGE_AI_ENDPOINT` | `instance/config.py` | – | IP เครื่อง AI |
-| `AI_ENGINE_URL` | `instance/config.py` | – | IP เครื่อง AI (pipeline) |
+| `AI_ENGINE_URL` | `instance/config.py` | `http://127.0.0.1:8000` | IP เครื่อง AI — backend สร้างภาพและเรียก pipeline ผ่าน ai-engine ทางเดียว (ไม่ยิง Forge ตรง) |
+| `FORGE_URL` | ai-engine (env) | – | ai-engine ใช้คุยกับ Forge — backend ไม่ใช้ |
 | `API_BASE_URL` | frontend | – | IP เครื่อง backend (V4+) |
 
 **ทำไม `LUMA_DEBUG` กับ `LUMA_HOST` แยกกันและ default ปลอดภัย**

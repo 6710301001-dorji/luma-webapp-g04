@@ -6,7 +6,7 @@
  */
 
 (() => {
-  const API_BASE = window.LUMA_CONFIG ? window.LUMA_CONFIG.apiBase : "http://127.0.0.1:5000";
+  const API_BASE = window.LUMA_CONFIG ? window.LUMA_CONFIG.apiBase : "";
 
   function initCanvasStudio() {
     const uploadInput = document.getElementById("canvas-upload-input");
