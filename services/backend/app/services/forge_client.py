@@ -33,10 +33,10 @@ def generate_image(
     Returns:
         tuple[str, int]: (relative_file_path, seed_used)
     """
-    endpoint = current_app.config.get("FORGE_AI_ENDPOINT")
-    if not endpoint:
-        ai_url = current_app.config.get("AI_ENGINE_URL", "http://127.0.0.1:7860").rstrip("/")
-        endpoint = f"{ai_url}/forge/txt2img"
+    # ผ่าน ai-engine ทางเดียวเสมอ — ai-engine (#102) คุยกับ Forge และอ่าน seed จริงจาก info ให้
+    # (ไม่ยิง Forge ตรงอีกแล้ว FORGE_AI_ENDPOINT ใน config เก่าถูกเมิน)
+    ai_url = current_app.config.get("AI_ENGINE_URL", "http://127.0.0.1:8000").rstrip("/")
+    endpoint = f"{ai_url}/forge/txt2img"
 
     timeout = current_app.config.get("FORGE_TIMEOUT_SECONDS", 120)
 

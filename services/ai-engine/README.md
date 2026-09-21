@@ -26,6 +26,19 @@ Conflicting combinations receive HTTP 400. The API response still contains
 `images` and `seed_used`; actual scheduler behavior should be checked with real
 Forge when it is available.
 
+## Smart Canvas palette route
+
+`POST /pipeline/04_features/color_palette` accepts plain base64 image bytes:
+
+```json
+{"image":"<base64 PNG or JPEG>","params":{"colors":5}}
+```
+
+It uses the existing `pipeline/04_features/color_palette.py` extractor and
+returns `{"image":"<base64>","metrics":{"color_palette":["#ff0000"]}}`.
+The backend removes the Data URL prefix sent by the browser before calling this
+route. Invalid images or parameters receive HTTP 400.
+
 When Forge runs on another computer, set `FORGE_URL` to its reachable address
 (for example, `http://192.168.1.30:7860`) before starting this service. `localhost`
 always refers to the computer running this service. Set `AI_ENGINE_HOST=0.0.0.0`

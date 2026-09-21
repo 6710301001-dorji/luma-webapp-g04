@@ -1,7 +1,12 @@
 """LUMA AI engine HTTP service. Run with: python services/ai-engine/app.py"""
 
 import os
+import base64
+import binascii
+from importlib import import_module
 
+import cv2
+import numpy as np
 import requests
 from flask import Flask, jsonify, request
 
@@ -13,6 +18,7 @@ LEGACY_KARRAS_SAMPLERS = {
     "DPM++ SDE Karras": "DPM++ SDE",
     "DPM++ 2M SDE Karras": "DPM++ 2M SDE",
 }
+extract_palette = import_module("pipeline.04_features.color_palette").extract_palette
 
 
 def create_app(config=None):
@@ -28,6 +34,37 @@ def create_app(config=None):
     def health():
         return jsonify({"status": "ok", "service": "ai-engine"})
 
+    @app.post("/pipeline/04_features/color_palette")
+    def color_palette():
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({"error": "Expected a JSON object"}), 400
+        image_b64 = data.get("image")
+        params = data.get("params", {})
+        if not isinstance(image_b64, str) or not image_b64:
+            return jsonify({"error": "image must be a nonempty base64 string"}), 400
+        if not isinstance(params, dict):
+            return jsonify({"error": "params must be a JSON object"}), 400
+        colors = params.get("colors", 5)
+        if isinstance(colors, bool) or not isinstance(colors, int) or not 1 <= colors <= 5:
+            return jsonify({"error": "colors must be an integer from 1 to 5"}), 400
+        try:
+            image_bytes = base64.b64decode(image_b64, validate=True)
+        except (ValueError, binascii.Error):
+            return jsonify({"error": "image must be valid base64"}), 400
+        try:
+            pixels = cv2.imdecode(np.frombuffer(image_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
+        except cv2.error:
+            pixels = None
+        if pixels is None:
+            return jsonify({"error": "image must contain a supported image"}), 400
+
+        palette = extract_palette(pixels, colors=colors)
+        return jsonify({
+            "image": image_b64,
+            "metrics": {"color_palette": [entry["hex"] for entry in palette]},
+        })
+
     @app.post("/forge/txt2img")
     def txt2img():
         data = request.get_json(silent=True)
@@ -37,12 +74,17 @@ def create_app(config=None):
         if not isinstance(prompt, str) or not prompt.strip():
             return jsonify({"error": "prompt must be a nonempty string"}), 400
 
+        # An explicit scheduler needs a plain sampler name, without a legacy suffix.
+        default_sampler = "DPM++ 2M Karras"
+        if "scheduler" in data:
+            default_sampler = "DPM++ 2M"
+
         payload = {
             "prompt": prompt.strip(),
             "negative_prompt": data.get("negative_prompt", ""),
             "steps": data.get("steps", 20),
             "cfg_scale": data.get("cfg_scale", 8),
-            "sampler_name": data.get("sampler_name", "DPM++ 2M Karras" if "scheduler" not in data else "DPM++ 2M"),
+            "sampler_name": data.get("sampler_name", default_sampler),
             "seed": data.get("seed", -1),
             "width": data.get("width", 512),
             "height": data.get("height", 512),

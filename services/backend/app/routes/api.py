@@ -8,6 +8,7 @@ import os
 from flask import Blueprint, current_app, jsonify, request, send_file, session
 from app.models import db, Asset
 from app.services.forge_client import generate_image, ForgeClientError
+from app.services.ai_engine_client import extract_color_palette, PipelineClientError
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
@@ -154,3 +155,35 @@ def get_asset_image(asset_id: int):
         return jsonify({"error": "ไฟล์ภาพสูญหาย / Image file not found on disk"}), 404
 
     return send_file(full_path, mimetype="image/png")
+
+
+@api_bp.route("/pipeline/palette/extract", methods=["POST"])
+def handle_palette_extract():
+    """POST /api/pipeline/palette/extract — สกัดจานสีเด่นจากภาพ (Issue #101, #60)
+
+    รับภาพจาก Smart Canvas (canvas.js) เป็น base64 แล้วส่งต่อให้ ai-engine
+    ประมวลผลจริงผ่าน POST /pipeline/04_features/color_palette (มี mock ให้ทดสอบ
+    แล้วที่ tools/mock_forge_server.py)
+
+    ไม่บังคับ login เหมือน /api/generate — endpoint นี้ไม่แตะข้อมูลที่เก็บไว้ของ
+    ผู้ใช้คนไหนเลย (ไม่มี id ให้เดา ไม่มีความเสี่ยง IDOR) เป็นแค่ transform ภาพที่
+    ส่งมาในคำขอเอง ต่างจาก GET /api/assets ที่ต้องป้องกันข้อมูลที่เก็บไว้จริง
+    """
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or not data:
+        return jsonify({"error": "คำขอต้องเป็น JSON object / Request must be a JSON object"}), 400
+
+    image_b64 = data.get("image")
+    if not isinstance(image_b64, str) or not image_b64.strip():
+        return jsonify({"error": "กรุณาระบุภาพ (image) เป็น string / image must be a non-empty string"}), 400
+    image_b64 = image_b64.strip()
+
+    try:
+        colors = extract_color_palette(image_b64, colors=5)
+    except PipelineClientError as e:
+        return jsonify({"error": e.message}), e.status_code
+    except Exception as e:
+        current_app.logger.error(f"เกิดข้อผิดพลาดในการสกัดจานสี: {e}", exc_info=True)
+        return jsonify({"error": "เกิดข้อผิดพลาดในการติดต่อ AI Engine / Internal Server Error"}), 500
+
+    return jsonify({"colors": colors}), 200
