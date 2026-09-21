@@ -49,10 +49,17 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     instance_path = os.path.join(backend_dir, "instance")
 
+    # เสิร์ฟ services/frontend/ ที่ origin เดียวกับ /api/ — ไม่ต้องมี CORS และ cookie session
+    # ส่งไปกับ fetch เอง (แยก origin :8080/:5000 เดิม browser บล็อกทุก fetch)
+    # ตรงกับ V5 ที่ nginx รวม / กับ /api/ ไว้ origin เดียว
+    frontend_dir = os.path.abspath(os.path.join(backend_dir, "..", "frontend"))
+
     app = Flask(
         __name__,
         instance_path=instance_path,
         instance_relative_config=True,
+        static_folder=frontend_dir,
+        static_url_path="",
     )
 
     # 1. กำหนดค่าคอนฟิกเริ่มต้น (Default Configurations)
@@ -149,5 +156,9 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     def health_check():
         app.logger.info("Health check endpoint ถูกเรียกใช้งาน")
         return jsonify({"status": "ok", "service": "luma-backend"}), 200
+
+    @app.route("/")
+    def index():
+        return app.redirect("/pages/index.html")
 
     return app
