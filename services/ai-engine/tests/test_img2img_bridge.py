@@ -105,6 +105,8 @@ def test_sketch_mode_uses_source_image_without_mask(monkeypatch):
     {"prompt": "edit", "init_image": "invalid!"},
     {"prompt": "edit", "init_image": base64.b64encode(b"not an image").decode("ascii")},
     {"prompt": "edit", "init_image": SOURCE_IMAGE, "mode": "inpaint"},
+    {"prompt": "edit", "init_image": SOURCE_IMAGE, "mode": "text", "mask": MASK_IMAGE},
+    {"prompt": "edit", "init_image": SOURCE_IMAGE, "mode": "sketch", "mask": MASK_IMAGE},
     {"prompt": "edit", "init_image": SOURCE_IMAGE, "mode": "inpaint-sketch", "mask": "bad!"},
     {"prompt": "edit", "init_image": SOURCE_IMAGE, "mode": "inpaint", "mask": _png(4, 4)},
     {"prompt": "edit", "init_image": SOURCE_IMAGE, "denoising_strength": True},

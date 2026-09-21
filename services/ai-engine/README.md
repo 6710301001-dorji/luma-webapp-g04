@@ -20,7 +20,10 @@ The backend stores the image; this service does not return a local file path.
 `POST /forge/img2img` accepts a plain base64 `init_image`, `prompt`, and
 `denoising_strength` (0–1). `mode` may be `text`, `sketch`, `inpaint`, or
 `inpaint-sketch`; both inpaint modes require a same-size base64 `mask`.
-The sketch mode expects the already painted source image. The service validates
+Text and sketch modes reject a mask. In an inpaint mask, white is the area to
+edit and black is preserved. The sketch mode expects the already painted source
+image. Send plain base64 rather than a Data URL; the backend strips any Data URL
+prefix before calling this service. The service validates
 inputs, forwards the source image as Forge's `init_images` list, and returns
 `{"images":["<base64>"],"seed_used":123}`. Invalid input receives 400.
 

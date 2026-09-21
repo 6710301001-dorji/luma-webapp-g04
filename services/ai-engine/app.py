@@ -103,6 +103,8 @@ def create_app(config=None):
         mask = data.get("mask")
         if mode.startswith("inpaint") and mask is None:
             return jsonify({"error": "mask is required for inpaint modes"}), 400
+        if not mode.startswith("inpaint") and mask is not None:
+            return jsonify({"error": "mask is only allowed for inpaint modes"}), 400
         if mask is not None:
             try:
                 mask_size = _image_size(mask)
