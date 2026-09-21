@@ -34,19 +34,30 @@ NAMING_CONVENTION = {
 }
 
 
-def _collision_count(conn, column: str) -> int:
-    """นับจำนวน "กลุ่ม" ที่ค่าชนกันเมื่อเทียบแบบไม่สนตัวพิมพ์
+def _collision_groups(conn, column: str) -> list[list[int]]:
+    """คืน id ของแถวที่ชนกันแบบไม่สนตัวพิมพ์ จัดเป็นกลุ่ม เช่น [[1, 2], [5, 8]]
 
     ใช้ GROUP BY ... COLLATE NOCASE ให้ตรงกับ constraint ที่กำลังจะสร้าง
     ถ้าใช้ lower() จะเป็นการเทียบคนละแบบกับที่ฐานข้อมูลจะบังคับจริง
+
+    ทำไมต้องเป็นกลุ่ม ไม่ใช่ flat list
+        [1, 2, 5, 8] บอกแค่ว่าสี่แถวนี้มีปัญหา แต่ไม่บอกว่าแถวไหนคู่กับแถวไหน
+        คนที่ต้องไปเคลียร์ข้อมูลจึงยังต้องไล่ query เองอยู่ดี กลุ่มบอกครบในบรรทัดเดียว
+
+    ทำไมคืนแค่ id ไม่คืนค่าในคอลัมน์
+        ผลลัพธ์นี้ไปจบที่ข้อความ error ของ flask db upgrade ซึ่งถูกเก็บลง log ได้
+        username/email เป็นข้อมูลส่วนบุคคล ส่วน id พอให้เจ้าของฐาน SELECT ดูเองได้
+
+    group_concat ไม่รับประกันลำดับภายในกลุ่ม และลำดับของกลุ่มขึ้นกับ collation
+    จึงเรียงทั้งสองชั้นใน Python ให้ผลคงที่ พอจะเทียบตรงๆ ใน test ได้
     """
-    return conn.execute(
+    rows = conn.execute(
         sa.text(
-            f"SELECT COUNT(*) FROM ("
-            f"  SELECT 1 FROM users GROUP BY {column} COLLATE NOCASE HAVING COUNT(*) > 1"
-            f")"
+            f"SELECT group_concat(id) FROM users "
+            f"GROUP BY {column} COLLATE NOCASE HAVING COUNT(*) > 1"
         )
-    ).scalar()
+    ).scalars().all()
+    return sorted(sorted(int(i) for i in row.split(",")) for row in rows)
 
 
 def check_no_collisions(conn) -> None:
@@ -60,16 +71,18 @@ def check_no_collisions(conn) -> None:
 
     แยกเป็นฟังก์ชันเพราะ flask_migrate ดัก RuntimeError แล้วแปลงเป็น SystemExit
     ทำให้ test ที่เรียกผ่าน upgrade() ตรวจเนื้อข้อความไม่ได้ — test จึงเรียก
-    ฟังก์ชันนี้ตรงๆ เพื่อพิสูจน์ว่าข้อความบอกคอลัมน์ที่ชนจริง
+    ฟังก์ชันนี้ตรงๆ เพื่อพิสูจน์ว่าข้อความบอกคอลัมน์และ id ที่ชนจริง
     """
     collisions = {
-        column: _collision_count(conn, column) for column in ("username", "email")
+        column: _collision_groups(conn, column) for column in ("username", "email")
     }
     if any(collisions.values()):
         raise RuntimeError(
             "migration c1a7f5d9e204 ไม่ทำงานต่อ เพราะตาราง users มีแถวที่ชนกันแบบ "
-            "ไม่สนตัวพิมพ์อยู่แล้ว / found case-insensitive duplicates in users: "
-            f"username={collisions['username']} กลุ่ม, email={collisions['email']} กลุ่ม\n"
+            "ไม่สนตัวพิมพ์อยู่แล้ว / found case-insensitive duplicates in users\n"
+            f"username={len(collisions['username'])} กลุ่ม id={collisions['username']}\n"
+            f"email={len(collisions['email'])} กลุ่ม id={collisions['email']}\n"
+            "(รายงานเป็น id เท่านั้น เพราะข้อความนี้ถูกเก็บลง log ได้)\n"
             "ยังไม่มีการแก้ schema ใดๆ — ฐานข้อมูลอยู่ในสภาพเดิมทั้งหมด\n"
             "ให้เจ้าของฐานข้อมูลเคลียร์แถวที่ชนกันเองก่อน แล้วรัน db upgrade อีกครั้ง\n"
             "หาแถวที่ชนได้ด้วย:\n"
@@ -78,50 +91,62 @@ def check_no_collisions(conn) -> None:
         )
 
 
-def upgrade():
-    # ขั้นที่ 1 — ตรวจก่อนแตะ schema (ดู docstring ของ check_no_collisions)
-    check_no_collisions(op.get_bind())
+def _rebuild_users(use_nocase: bool) -> None:
+    """สร้าง users ใหม่โดยรักษา assets ที่อ้างถึงไว้ทั้งขาขึ้นและขาลง"""
+    conn = op.get_bind()
+    sqlite = conn.dialect.name == "sqlite"
+    if sqlite:
+        # DROP TABLE users ของ batch mode จะทำ FK CASCADE ลบ assets ถ้า FK เปิดอยู่
+        # PRAGMA เปลี่ยนค่าไม่ได้ขณะมี SQLite transaction จึงตรวจและปิดก่อน BEGIN
+        if conn.connection.driver_connection.in_transaction:
+            raise RuntimeError("ต้องรัน migration โดยไม่มี SQLite transaction ค้างอยู่")
+        old_fk = conn.exec_driver_sql("PRAGMA foreign_keys").scalar_one()
+        conn.exec_driver_sql("PRAGMA foreign_keys=OFF")
+        if conn.exec_driver_sql("PRAGMA foreign_keys").scalar_one() != 0:
+            raise RuntimeError("ปิด SQLite foreign_keys ไม่สำเร็จ; ยังไม่มีการแก้ schema")
 
-    # ---------------------------------------------------------------------
-    # ขั้นที่ 2 — เปลี่ยน collation ของคอลัมน์
-    #
-    # SQLite เปลี่ยน collation ด้วย ALTER ตรงๆ ไม่ได้ ต้องให้ batch mode
-    # สร้างตารางใหม่ + คัดลอกข้อมูล + สร้าง constraint กลับมาให้
-    # ---------------------------------------------------------------------
-    with op.batch_alter_table(
-        "users", naming_convention=NAMING_CONVENTION, schema=None
-    ) as batch_op:
-        batch_op.alter_column(
-            "username",
-            existing_type=sa.String(length=80),
-            type_=sa.String(length=80, collation="NOCASE"),
-            existing_nullable=False,
-        )
-        batch_op.alter_column(
-            "email",
-            existing_type=sa.String(length=255),
-            type_=sa.String(length=255, collation="NOCASE"),
-            existing_nullable=False,
-        )
+    old_collation = None if use_nocase else "NOCASE"
+    new_collation = "NOCASE" if use_nocase else None
+    try:
+        if sqlite:
+            conn.exec_driver_sql("BEGIN")  # ให้ CREATE/COPY/DROP/RENAME rollback ได้พร้อมกัน
+        with op.batch_alter_table(
+            "users", naming_convention=NAMING_CONVENTION, schema=None
+        ) as batch_op:
+            batch_op.alter_column(
+                "username",
+                existing_type=sa.String(length=80, collation=old_collation),
+                type_=sa.String(length=80, collation=new_collation),
+                existing_nullable=False,
+            )
+            batch_op.alter_column(
+                "email",
+                existing_type=sa.String(length=255, collation=old_collation),
+                type_=sa.String(length=255, collation=new_collation),
+                existing_nullable=False,
+            )
+
+        if sqlite:
+            if conn.exec_driver_sql("PRAGMA foreign_key_check").first():
+                raise RuntimeError("migration ทำให้ foreign key ไม่ถูกต้อง; rollback แล้ว")
+            conn.commit()  # ต้องจบ transaction ก่อนเปิด PRAGMA foreign_keys กลับ
+    except Exception:
+        if sqlite:
+            conn.rollback()
+        raise
+    finally:
+        if sqlite:
+            conn.exec_driver_sql(f"PRAGMA foreign_keys={old_fk}")
+            if conn.exec_driver_sql("PRAGMA foreign_keys").scalar_one() != old_fk:
+                raise RuntimeError("คืนค่า SQLite foreign_keys ไม่สำเร็จ")
+
+
+def upgrade():
+    # ตรวจก่อนแตะ schema; ห้ามรวม/ลบแถวที่ชนกันให้เอง
+    check_no_collisions(op.get_bind())
+    _rebuild_users(use_nocase=True)
 
 
 def downgrade():
-    """ถอยกลับเป็น VARCHAR ธรรมดา
-
-    ข้อมูลไม่หาย แต่หลัง downgrade ฐานจะรับ 'Boss' กับ 'boss' พร้อมกันได้อีก
-    """
-    with op.batch_alter_table(
-        "users", naming_convention=NAMING_CONVENTION, schema=None
-    ) as batch_op:
-        batch_op.alter_column(
-            "username",
-            existing_type=sa.String(length=80, collation="NOCASE"),
-            type_=sa.String(length=80),
-            existing_nullable=False,
-        )
-        batch_op.alter_column(
-            "email",
-            existing_type=sa.String(length=255, collation="NOCASE"),
-            type_=sa.String(length=255),
-            existing_nullable=False,
-        )
+    """ถอยกลับเป็น VARCHAR ธรรมดา โดยไม่ลบ assets ของผู้ใช้"""
+    _rebuild_users(use_nocase=False)

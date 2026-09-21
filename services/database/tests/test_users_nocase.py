@@ -28,6 +28,7 @@ sys.path.insert(0, str(DATABASE_DIR))
 
 # revision ก่อนหน้า #119 — ตาราง users ยังเป็น String ธรรมดา ไม่มี COLLATE NOCASE
 REVISION_BEFORE = "deba60c08f36"
+REVISION_NOCASE = "c1a7f5d9e204"
 
 
 def _make_app(tmp_path, stop_at=None):
@@ -96,6 +97,20 @@ def _users_table_sql(db):
 
 def _current_revision(db):
     return db.session.execute(text("SELECT version_num FROM alembic_version")).scalar()
+
+
+def _user_ids(db, *usernames):
+    """id ของแถวตามชื่อที่ระบุ เรียงน้อยไปมาก — ใช้เทียบกับกลุ่มที่ guard รายงาน
+
+    ไม่ hardcode เลข 1, 2 เพราะลำดับ id ขึ้นกับว่า test insert อะไรไปก่อนหน้า
+    ถ้า hardcode ไว้ แล้ววันหลังมีคนเพิ่มแถวใน fixture test จะพังทั้งที่ไม่มีบั๊ก
+    """
+    return sorted(
+        db.session.execute(
+            text("SELECT id FROM users WHERE username = :u"), {"u": username}
+        ).scalar()
+        for username in usernames
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -181,8 +196,8 @@ def test_guard_message_names_the_colliding_column(app_before_nocase):
 
         conn = db.session.connection()
 
-        assert migration._collision_count(conn, "username") == 1
-        assert migration._collision_count(conn, "email") == 0
+        assert migration._collision_groups(conn, "username") == [_user_ids(db, "Boss", "boss")]
+        assert migration._collision_groups(conn, "email") == []
 
         with pytest.raises(RuntimeError) as err:
             migration.check_no_collisions(conn)
@@ -191,6 +206,47 @@ def test_guard_message_names_the_colliding_column(app_before_nocase):
         assert "username=1" in message, "ต้องบอกจำนวนกลุ่มที่ชนของแต่ละคอลัมน์"
         assert "ยังไม่มีการแก้ schema" in message
         assert "GROUP BY username COLLATE NOCASE" in message, "ต้องมีคำสั่งให้ไปหาแถวที่ชน"
+
+
+def test_guard_reports_ids_grouped_not_flat(app_before_nocase):
+    """[กรณีทดสอบ]: guard ต้องรายงาน id เป็นกลุ่ม [[1, 2], [3, 4]] และไม่พ่น username/email
+
+    ทำไมต้องเป็นกลุ่มไม่ใช่ flat list
+        [1, 2, 3, 4] บอกแค่ว่าสี่แถวนี้มีปัญหา แต่ไม่บอกว่าแถวไหนคู่กับแถวไหน
+        คนที่ต้องไปเคลียร์ข้อมูลจึงยังต้องไล่ query เองอยู่ดี กลุ่มบอกครบในบรรทัดเดียว
+
+    ทำไมต้องไม่มี username/email ในข้อความ
+        ข้อความนี้จบลงที่ log ของ `flask db upgrade` ซึ่งอาจถูกเก็บหรือส่งต่อ
+        username/email เป็นข้อมูลส่วนบุคคล ส่วน id พอให้เจ้าของฐานไป SELECT ดูเองได้
+    """
+    from app.models import db
+
+    migration = _load_migration_module()
+
+    with app_before_nocase.app_context():
+        # สองกลุ่มที่ชนกัน + หนึ่งแถวที่ไม่ชน เพื่อพิสูจน์ว่าแยกกลุ่มถูก ไม่ใช่เหมารวม
+        _insert_user(db, "Ann", "ann@example.com")
+        _insert_user(db, "ann", "ann.two@example.com")
+        _insert_user(db, "Bee", "bee@example.com")
+        _insert_user(db, "bee", "bee.two@example.com")
+        _insert_user(db, "cat", "cat@example.com")
+
+        conn = db.session.connection()
+
+        ann_group = _user_ids(db, "Ann", "ann")
+        bee_group = _user_ids(db, "Bee", "bee")
+        assert migration._collision_groups(conn, "username") == [ann_group, bee_group]
+        assert migration._collision_groups(conn, "email") == []
+
+        with pytest.raises(RuntimeError) as err:
+            migration.check_no_collisions(conn)
+
+        message = str(err.value)
+        assert str([ann_group, bee_group]) in message, "ต้องรายงาน id เป็นกลุ่ม"
+        assert "username=2" in message
+
+        for personal in ("Ann", "ann@example.com", "Bee", "bee@example.com"):
+            assert personal not in message, f"ห้ามมี {personal} อยู่ในข้อความที่ลง log"
 
 
 def test_upgrade_fails_without_touching_data_when_users_collide(app_before_nocase):
@@ -254,6 +310,66 @@ def test_upgrade_succeeds_when_no_collision(app_before_nocase):
         db.session.rollback()
         assert db.session.execute(text("SELECT COUNT(*) FROM users")).scalar() == 2
         assert "NOCASE" in _users_table_sql(db)
+
+
+def test_upgrade_preserves_assets_owned_by_users(app_before_nocase):
+    """เปลี่ยน collation แล้ว asset ที่ชี้ไป user เดิมต้องไม่ถูกลบตาม FK CASCADE"""
+    from app.models import db
+
+    with app_before_nocase.app_context():
+        _insert_user(db, "boss", "boss@example.com")
+        user_id = db.session.execute(text("SELECT id FROM users WHERE username='boss'")).scalar()
+        db.session.execute(
+            text(
+                "INSERT INTO assets (prompt, file_path, created_at, user_id) "
+                "VALUES ('a tree', 'generated/tree.png', '2026-09-21 00:00:00', :user_id)"
+            ),
+            {"user_id": user_id},
+        )
+        db.session.commit()
+        assert db.session.execute(text("PRAGMA foreign_keys")).scalar() == 1
+        assert db.session.execute(text("SELECT COUNT(*) FROM assets")).scalar() == 1
+
+        upgrade()
+
+        db.session.rollback()
+        assert db.session.execute(text("PRAGMA foreign_keys")).scalar() == 1
+        assert _current_revision(db) == REVISION_NOCASE
+        owned_assets = db.session.execute(
+            text("SELECT user_id FROM assets WHERE file_path='generated/tree.png'")
+        ).scalars().all()
+        assert owned_assets == [user_id]
+        assert db.session.execute(text("PRAGMA foreign_key_check")).all() == []
+
+
+def test_downgrade_preserves_assets_owned_by_users(app):
+    """ถอย collation แล้ว asset ที่ผูกกับ user เดิมต้องยังอยู่"""
+    from app.models import db
+
+    with app.app_context():
+        assert _current_revision(db) == REVISION_NOCASE
+        _insert_user(db, "boss", "boss@example.com")
+        user_id = db.session.execute(text("SELECT id FROM users WHERE username='boss'")).scalar()
+        db.session.execute(
+            text(
+                "INSERT INTO assets (prompt, file_path, created_at, user_id) "
+                "VALUES ('a tree', 'generated/tree.png', '2026-09-21 00:00:00', :user_id)"
+            ),
+            {"user_id": user_id},
+        )
+        db.session.commit()
+        assert db.session.execute(text("SELECT COUNT(*) FROM assets")).scalar() == 1
+
+        downgrade(revision=REVISION_BEFORE)
+
+        db.session.rollback()
+        assert db.session.execute(text("PRAGMA foreign_keys")).scalar() == 1
+        assert _current_revision(db) == REVISION_BEFORE
+        owned_assets = db.session.execute(
+            text("SELECT user_id FROM assets WHERE file_path='generated/tree.png'")
+        ).scalars().all()
+        assert owned_assets == [user_id]
+        assert db.session.execute(text("PRAGMA foreign_key_check")).all() == []
 
 
 def test_downgrade_then_upgrade_is_reversible(app):
