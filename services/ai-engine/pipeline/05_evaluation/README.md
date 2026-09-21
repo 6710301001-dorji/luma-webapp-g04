@@ -46,6 +46,28 @@
 
 ## เครื่องมือ
 
+### Benchmark baseline for issue #68
+
+Run from the repository root with the project environment:
+
+```bash
+python services/ai-engine/pipeline/05_evaluation/benchmark_baseline.py \
+  --output services/ai-engine/samples/benchmark
+```
+
+This compares a 15 × 15 box filter implemented as a 2D convolution with two
+separable 1D passes on the same deterministic 1024 × 1024 grayscale image.
+The script saves a CSV, labeled PNG graph, and machine metadata. The committed
+sample in `samples/benchmark/` is one run on a Mac; times vary by hardware.
+
+When real Forge is available **before the job queue is deployed**, run the same
+script with `--ai-url http://127.0.0.1:8000`. It then times three generation
+step counts and two simultaneous users over HTTP and saves p50/p95 values and
+a labeled graph. Record the Forge machine, model, and sampler beside those
+results. Mock Forge timings are useful for checking the script but are not
+evidence of real generation performance. The after-queue comparison must
+measure from job submission through `done`, including polling time.
+
 - `time.perf_counter()` สำหรับจับเวลาโค้ด
 - `matplotlib` พลอต histogram / กราฟเปรียบเทียบ (Lecture 4 หน้า 28–29
   แนะนำให้ปรับรูปแบบกราฟ ใส่ label, grid ด้วย)
