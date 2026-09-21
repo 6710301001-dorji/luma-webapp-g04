@@ -119,6 +119,22 @@ def test_generate_limits_match_ai_engine():
             assert res.status_code == 400, f"{extra} ควรได้ 400 แต่ได้ {res.status_code}"
 
 
+def test_generate_rejects_booleans_in_numeric_fields():
+    """[กรณีทดสอบ]: true/false ในฟิลด์ตัวเลขต้องได้ 400 (API_CONTRACT.md บรรทัด 101-106)
+
+    isinstance(True, int) เป็น True และ int(True) = 1 — {"steps": true} เคยผ่านไปถึง ai-engine ได้
+    และ {"seed": false} กลายเป็น seed 0 เงียบๆ
+    """
+    from unittest.mock import patch
+
+    client = create_app({"TESTING": True, "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:"}).test_client()
+    with patch("app.routes.api.generate_image", side_effect=_must_not_reach_ai_engine):
+        for field in ("steps", "cfg_scale", "seed", "width", "height"):
+            for value in (True, False):
+                res = client.post("/api/generate", json={"prompt": "cat", field: value})
+                assert res.status_code == 400, f"{field}={value} ควรได้ 400 แต่ได้ {res.status_code}"
+
+
 # ==============================================================================
 # ตัวรันสำหรับสั่งรันไฟล์นี้โดยตรง (Direct Runner)
 # ==============================================================================
