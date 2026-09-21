@@ -177,6 +177,36 @@ def get_asset_image(asset_id: int):
     return send_file(full_path, mimetype="image/png")
 
 
+@api_bp.route("/assets/<int:asset_id>", methods=["DELETE"])
+def delete_asset(asset_id: int):
+    """DELETE /api/assets/<asset_id> — ลบภาพของตัวเอง ทั้งไฟล์และแถว (#58, docs/API_CONTRACT.md)
+
+    ไม่ใช่เจ้าของหรือไม่มี id นี้ -> 404 เหมือน GET image (ไม่บอกว่า id มีอยู่จริง)
+    ไฟล์หายไปก่อนแล้ว -> ลบแถวต่อได้ แค่ log warning ตาม contract
+    """
+    if "user_id" not in session:
+        return jsonify({"error": "ยังไม่ได้เข้าสู่ระบบ / Unauthorized"}), 401
+
+    asset = db.session.get(Asset, asset_id)
+    if asset is None or asset.user_id != session["user_id"]:
+        return jsonify({"error": "ไม่พบภาพที่ระบุ / Asset not found"}), 404
+
+    # file_path มาจาก DB แต่ถ้าแถวเพี้ยน (เช่นมี ../) DELETE จะกลายเป็นคำสั่งลบไฟล์อะไรก็ได้
+    uploads_dir = os.path.realpath(os.path.join(current_app.instance_path, "uploads"))
+    full_path = os.path.realpath(os.path.join(current_app.instance_path, asset.file_path))
+    if os.path.commonpath([uploads_dir, full_path]) != uploads_dir:
+        current_app.logger.warning("asset %s: file_path อยู่นอก uploads/ ไม่ลบไฟล์: %s", asset_id, asset.file_path)
+    else:
+        try:
+            os.remove(full_path)
+        except FileNotFoundError:
+            current_app.logger.warning("asset %s: ไม่พบไฟล์ %s ลบเฉพาะแถว", asset_id, asset.file_path)
+
+    db.session.delete(asset)
+    db.session.commit()
+    return jsonify({"status": "deleted", "asset_id": asset_id}), 200
+
+
 @api_bp.route("/pipeline/palette/extract", methods=["POST"])
 def handle_palette_extract():
     """POST /api/pipeline/palette/extract — สกัดจานสีเด่นจากภาพ (Issue #101, #60)

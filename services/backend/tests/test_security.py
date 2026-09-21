@@ -163,6 +163,14 @@ def test_post_with_wrong_csrf_token_is_rejected():
     assert res.status_code == 400
 
 
+def test_delete_without_csrf_token_is_rejected():
+    """[กรณีทดสอบ #58]: DELETE /api/assets/<id> ก็เปลี่ยนสถานะ — ไม่มี token ต้องได้ 400 ก่อนถึง route"""
+    client = _csrf_client()
+    res = client.delete("/api/assets/1")
+    assert res.status_code == 400
+    assert "error" in res.get_json()
+
+
 # ==============================================================================
 # ตัวรันสำหรับสั่งรันไฟล์นี้โดยตรง (Direct Runner)
 # ==============================================================================
