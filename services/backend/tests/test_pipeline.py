@@ -135,6 +135,52 @@ def test_palette_extract_malformed_ai_engine_response_returns_502():
     assert "error" in res.get_json()
 
 
+
+def test_palette_extract_bad_image_is_client_error_not_502():
+    """[กรณีทดสอบ]: ผู้ใช้อัปไฟล์ที่ไม่ใช่ภาพ -> ai-engine ตอบ 400 -> backend ต้องตอบ 400
+
+    เดิมแปลงทุกสถานะที่ไม่ใช่ 200 เป็น 502 ผู้ใช้เลยเห็นเหมือน server ล่ม ทั้งที่ไฟล์ของตัวเองผิด
+    """
+    _, client = _make_client()
+    fake_response = Mock(status_code=400)
+    fake_response.json.return_value = {"error": "image must contain a supported image"}
+
+    with patch("app.services.ai_engine_client.requests.post", return_value=fake_response):
+        res = client.post("/api/pipeline/palette/extract", json={"image": "bm90IGFuIGltYWdl"})
+
+    assert res.status_code == 400
+    assert "error" in res.get_json()
+
+
+def test_palette_extract_ai_engine_5xx_is_still_502():
+    """[กรณีทดสอบ]: ai-engine พังเอง (500) ยังต้องเป็น 502 — ไม่ใช่ความผิดของผู้ใช้"""
+    _, client = _make_client()
+    with patch("app.services.ai_engine_client.requests.post", return_value=Mock(status_code=500)):
+        res = client.post("/api/pipeline/palette/extract", json={"image": "aGVsbG8="})
+    assert res.status_code == 502
+
+
+def test_palette_extract_error_does_not_leak_internal_address():
+    """[กรณีทดสอบ]: error ที่ส่งให้ browser ต้องไม่มี URL / host / port ภายในของ ai-engine
+
+    ข้อความจาก requests มี host:port ติดมา (เช่น "HTTPConnectionPool(host='10.0.0.5', port=8000)")
+    รายละเอียดเก็บใน log ฝั่ง server พอ
+    """
+    import requests
+
+    app = create_app({"TESTING": True, "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
+                      "AI_ENGINE_URL": "http://10.0.0.5:8000"})
+    client = app.test_client()
+    refused = requests.exceptions.ConnectionError(
+        "HTTPConnectionPool(host='10.0.0.5', port=8000): Max retries exceeded")
+    for side_effect, reply in ((refused, None), (None, Mock(status_code=500))):
+        with patch("app.services.ai_engine_client.requests.post",
+                   side_effect=side_effect, return_value=reply):
+            res = client.post("/api/pipeline/palette/extract", json={"image": "aGVsbG8="})
+        body = res.get_data(as_text=True)
+        assert "10.0.0.5" not in body and "8000" not in body and "http" not in body, body
+
+
 # ==============================================================================
 # ตัวรันสำหรับสั่งรันไฟล์นี้โดยตรง (Direct Runner)
 # ==============================================================================
@@ -151,6 +197,9 @@ if __name__ == "__main__":
         ("ai-engine เชื่อมต่อไม่ได้ -> 502", test_palette_extract_ai_engine_unreachable_returns_502),
         ("ai-engine ตอบสำเร็จ -> colors ถูกต้อง", test_palette_extract_success_returns_hex_colors),
         ("ai-engine ตอบผิดรูป -> 502", test_palette_extract_malformed_ai_engine_response_returns_502),
+        ("ไฟล์ไม่ใช่ภาพ -> 400 ไม่ใช่ 502", test_palette_extract_bad_image_is_client_error_not_502),
+        ("ai-engine 5xx -> ยังเป็น 502", test_palette_extract_ai_engine_5xx_is_still_502),
+        ("error ไม่มี URL ภายใน", test_palette_extract_error_does_not_leak_internal_address),
     ]
 
     passed = 0
