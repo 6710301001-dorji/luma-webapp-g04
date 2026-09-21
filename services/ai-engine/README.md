@@ -15,6 +15,19 @@ The LUMA backend calls `POST http://127.0.0.1:8000/forge/txt2img` with JSON such
 `/sdapi/v1/txt2img` endpoint and returns `{"images":["<base64>"],"seed_used":123}`.
 The backend stores the image; this service does not return a local file path.
 
+## Smart Canvas palette route
+
+`POST /pipeline/04_features/color_palette` accepts plain base64 image bytes:
+
+```json
+{"image":"<base64 PNG or JPEG>","params":{"colors":5}}
+```
+
+It uses the existing `pipeline/04_features/color_palette.py` extractor and
+returns `{"image":"<base64>","metrics":{"color_palette":["#ff0000"]}}`.
+The backend removes the Data URL prefix sent by the browser before calling this
+route. Invalid images or parameters receive HTTP 400.
+
 When Forge runs on another computer, set `FORGE_URL` to its reachable address
 (for example, `http://192.168.1.30:7860`) before starting this service. `localhost`
 always refers to the computer running this service. Set `AI_ENGINE_HOST=0.0.0.0`
