@@ -38,6 +38,53 @@ def test_app_factory_config_overrides():
     assert app.config["SQLALCHEMY_DATABASE_URI"] == "sqlite:///:memory:"
 
 
+def _forged_session_cookie(key: str) -> str:
+    """cookie session ที่ผู้โจมตีเซ็นเองด้วย key ที่เปิดเผยอยู่ใน repo — ไม่ได้ login เลย"""
+    from flask import Flask
+    from flask.sessions import SecureCookieSessionInterface
+    attacker = Flask("attacker")
+    attacker.secret_key = key
+    return SecureCookieSessionInterface().get_signing_serializer(attacker).dumps({"user_id": 1})
+
+
+def _app_with_user(**overrides):
+    from app.models import db, User
+    app = create_app({"TESTING": True, "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:", **overrides})
+    with app.app_context():
+        db.create_all()
+        db.session.add(User(username="victim", email="victim@luma.ai", password_hash="x"))  # no-secret-check
+        db.session.commit()
+    return app
+
+
+def test_missing_config_does_not_fall_back_to_public_secret_key(monkeypatch):
+    """[กรณีทดสอบ]: ไม่มี instance/config.py -> cookie ที่เซ็นด้วย key ตายตัวเดิมในโค้ดต้องใช้ไม่ได้ (#51)"""
+    from flask import Config
+    monkeypatch.setattr(Config, "from_pyfile", lambda self, *a, **kw: True)
+
+    client = _app_with_user().test_client()
+    client.set_cookie("session", _forged_session_cookie("luma-dev-secret-key-change-in-production"))
+    assert client.get("/api/auth/me").status_code == 401
+
+
+def test_placeholder_secret_key_from_example_is_not_used():
+    """[กรณีทดสอบ]: คัดลอก config.py.example มาแต่ไม่เปลี่ยน SECRET_KEY -> ค่า placeholder สาธารณะต้องใช้ไม่ได้"""
+    placeholder = "CHANGE-ME-run-the-secrets-command-above"
+    app = _app_with_user(SECRET_KEY=placeholder)
+    assert app.config["SECRET_KEY"] != placeholder
+
+    client = app.test_client()
+    client.set_cookie("session", _forged_session_cookie(placeholder))
+    assert client.get("/api/auth/me").status_code == 401
+
+
+def test_generated_secret_key_is_random_per_app():
+    """[กรณีทดสอบ]: key ที่สุ่มให้ต้องไม่ซ้ำกันระหว่างการสร้าง app แต่ละครั้ง (ไม่ใช่ค่าคงที่ใหม่)"""
+    first = create_app({"TESTING": True, "SECRET_KEY": ""}).config["SECRET_KEY"]
+    second = create_app({"TESTING": True, "SECRET_KEY": ""}).config["SECRET_KEY"]
+    assert first and second and first != second
+
+
 # ==============================================================================
 # ตัวรันสำหรับสั่งรันไฟล์นี้โดยตรง (Direct Runner)
 # ==============================================================================
@@ -49,6 +96,7 @@ if __name__ == "__main__":
     tests = [
         ("ตรวจสอบค่า Default Config ของ create_app()", test_app_factory_default_config),
         ("ตรวจสอบระบบ Config Overrides สำหรับ Testing", test_app_factory_config_overrides),
+        ("key สุ่มไม่ซ้ำกันทุกครั้ง", test_generated_secret_key_is_random_per_app),
     ]
 
     passed = 0
