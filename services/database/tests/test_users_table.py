@@ -129,11 +129,17 @@ def test_downgrade_then_upgrade_is_reversible(app):
     """MUST — downgrade แล้ว upgrade ใหม่ ได้ผลเหมือนเดิม
 
     migration ที่ถอยกลับไม่ได้คือ migration ที่แก้ผิดแล้วกู้ไม่ได้
+
+    ระบุ revision ปลายทางชัดเจน ไม่ใช่ downgrade() เปล่า
+        downgrade() เปล่าถอยแค่ 1 ขั้นจาก head ตอนที่เขียน test นี้ head คือ
+        deba60c08f36 พอดี แต่เมื่อมี migration ใหม่ (c1a7f5d9e204 ของ #119)
+        head เลื่อนไป การถอย 1 ขั้นจึงหยุดที่ deba60c08f36 ซึ่งตาราง users
+        ยังอยู่ แล้ว assert ข้างล่างล้มทั้งที่ migration ไม่ได้มีอะไรผิด
     """
     from app.models import db
 
     with app.app_context():
-        downgrade()
+        downgrade(revision="18566175f613")
 
         tables_after_down = set(inspect(db.engine).get_table_names())
         assert "users" not in tables_after_down
