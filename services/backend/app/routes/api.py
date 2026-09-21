@@ -20,7 +20,14 @@ def ping():
 
 @api_bp.route("/generate", methods=["POST"])
 def handle_generate():
-    """POST /api/generate — สั่งสร้างภาพใหม่ผ่าน Forge AI หรือ Mock Server (Issue #22)"""
+    """POST /api/generate — สั่งสร้างภาพใหม่ผ่าน Forge AI หรือ Mock Server (Issue #22)
+
+    ต้อง login — ภาพผูกเจ้าของเป็นคนที่ login อยู่ (#115) และคนนอกใช้ GPU ไม่ได้
+    """
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "ยังไม่ได้เข้าสู่ระบบ / Unauthorized"}), 401
+
     data = request.get_json(silent=True)
     if not isinstance(data, dict) or not data:
         return jsonify({"error": "คำขอต้องเป็น JSON object / Request must be a JSON object"}), 400
@@ -89,6 +96,7 @@ def handle_generate():
         new_asset = Asset(
             prompt=prompt,
             file_path=relative_path,
+            user_id=user_id,
         )
         db.session.add(new_asset)
         db.session.commit()
@@ -108,11 +116,9 @@ def handle_generate():
 def list_assets():
     """GET /api/assets — รายการผลงาน เรียงใหม่->เก่า รองรับค้นหา+แบ่งหน้า (docs/API_CONTRACT.md ข้อ 2)
 
-    บังคับ login แล้ว (session["user_id"] ต้องมี ไม่งั้น 401) — รีวิว PR #99 ข้อ 1
-    แต่ยังไม่กรองตามเจ้าของ (asset.user_id) — POST /api/generate ยังไม่ผูก asset
-    กับผู้ใช้ที่ login อยู่ (ดู #96: user_id เป็น nullable ไว้ก่อนตั้งใจ รอ auth)
-    เป็นงานต่อเนื่องที่ต้องทำก่อนเปิด ownership filter ตรงนี้ ไม่งั้น asset
-    เก่าทั้งหมด (user_id เป็น NULL) จะหายไปจากทุกคนทันที
+    ต้อง login และเห็นเฉพาะของตัวเอง (#115)
+    asset เก่าที่ user_id เป็น NULL (สร้างก่อน /api/generate ผูกเจ้าของ) ไม่มีใครเห็น
+    แต่ยังอยู่ใน DB — จะทำอะไรกับมันต่อเป็นเรื่องของ migration #97
     """
     if "user_id" not in session:
         return jsonify({"error": "ยังไม่ได้เข้าสู่ระบบ / Unauthorized"}), 401
@@ -121,7 +127,7 @@ def list_assets():
     per_page = request.args.get("per_page", 20, type=int)
     q = request.args.get("q", "", type=str).strip()
 
-    query = Asset.query
+    query = Asset.query.filter(Asset.user_id == session["user_id"])
     if q:
         # autoescape=True กัน % และ _ ใน q ทำตัวเป็น SQL wildcard เอง
         # (ไม่งั้น q="long_hair" จะ match "longXhair" ด้วย เพราะ _ = ตัวอะไรก็ได้ 1 ตัว)
@@ -147,16 +153,14 @@ def list_assets():
 def get_asset_image(asset_id: int):
     """GET /api/assets/<asset_id>/image — เสิร์ฟไฟล์ภาพจริง (docs/API_CONTRACT.md ข้อ 2)
 
-    บังคับ login แล้ว (session["user_id"] ต้องมี ไม่งั้น 401) — รีวิว PR #99 ข้อ 1
-    ⚠️ ownership check ("ต้องล็อกอิน + เป็นเจ้าของ ไม่งั้น 404" ตาม API_CONTRACT.md)
-    ยังเปิดแค่ครึ่งเดียว (login) — กรองตามเจ้าของยังรอ /api/generate set user_id
-    ก่อน เหตุผลเดียวกับ list_assets() ด้านบน
+    ต้อง login + เป็นเจ้าของ ไม่งั้น 404 (API_CONTRACT.md) — ไม่ใช่ 403 เพราะ 403 บอก
+    ผู้โจมตีว่า id นั้นมีอยู่จริง ไม่มีภาพ กับ มีแต่เป็นของคนอื่น ต้องแยกไม่ออก
     """
     if "user_id" not in session:
         return jsonify({"error": "ยังไม่ได้เข้าสู่ระบบ / Unauthorized"}), 401
 
     asset = db.session.get(Asset, asset_id)
-    if asset is None:
+    if asset is None or asset.user_id != session["user_id"]:
         return jsonify({"error": "ไม่พบภาพที่ระบุ / Asset not found"}), 404
 
     full_path = os.path.join(current_app.instance_path, asset.file_path)
