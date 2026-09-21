@@ -37,7 +37,8 @@
       if (errorBox) errorBox.setAttribute("hidden", "");
 
       try {
-        const url = new URL(`${API_BASE}/api/assets`);
+        // API_BASE ว่าง (same-origin) -> path แบบ relative ต้องมี base ไม่งั้น new URL() โยน TypeError
+        const url = new URL(`${API_BASE}/api/assets`, window.location.origin);
         url.searchParams.set("page", String(page));
         url.searchParams.set("per_page", String(perPage));
         if (query) {
