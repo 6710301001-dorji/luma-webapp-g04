@@ -37,13 +37,58 @@ def test_generate_requires_prompt():
 
 
 def test_generate_steps_validation():
-    """[กรณีทดสอบ]: ส่งค่า steps เกินช่วง 1-100 ต้องได้ HTTP 400"""
+    """[กรณีทดสอบ]: ส่งค่า steps เกินช่วง 1-50 ต้องได้ HTTP 400"""
     app = create_app({"TESTING": True, "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:"})
     client = app.test_client()
 
     res = client.post("/api/generate", json={"prompt": "cat", "steps": 200})
     assert res.status_code == 400
     assert "error" in res.get_json()
+
+
+def _must_not_reach_ai_engine(*args, **kwargs):
+    raise AssertionError("คำขอที่ไม่ผ่าน validation ต้องไม่ถูกส่งไป AI engine")
+
+
+def test_generate_rejects_non_string_fields_and_non_object_body():
+    """[กรณีทดสอบ]: prompt เป็น null/ตัวเลข หรือ body เป็น JSON array ต้องได้ 400 ไม่ใช่ 500"""
+    from unittest.mock import patch
+
+    client = create_app({"TESTING": True, "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:"}).test_client()
+    with patch("app.routes.api.generate_image", side_effect=_must_not_reach_ai_engine):
+        for body in ({"prompt": None}, {"prompt": 123}, {"prompt": "cat", "negative_prompt": 5}, [1, 2]):
+            res = client.post("/api/generate", json=body)
+            assert res.status_code == 400, f"{body} ควรได้ 400 แต่ได้ {res.status_code}"
+
+
+def test_generate_limits_match_ai_engine():
+    """[กรณีทดสอบ]: steps 1-50 และ width/height 512/768/1024 ตาม API_CONTRACT และที่ ai-engine (#102) บังคับ
+
+    เดิม backend ยอม steps 51-100 (ai-engine ตอบ 400 -> ผู้ใช้เห็น 502) และไม่เช็ค width/height เลย
+    """
+    from unittest.mock import patch
+
+    client = create_app({"TESTING": True, "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:"}).test_client()
+    with patch("app.routes.api.generate_image", side_effect=_must_not_reach_ai_engine):
+        for extra in ({"steps": 51}, {"width": 20000}, {"height": -512}, {"width": 513}):
+            res = client.post("/api/generate", json={"prompt": "cat", **extra})
+            assert res.status_code == 400, f"{extra} ควรได้ 400 แต่ได้ {res.status_code}"
+
+
+def test_generate_rejects_booleans_in_numeric_fields():
+    """[กรณีทดสอบ]: true/false ในฟิลด์ตัวเลขต้องได้ 400 (API_CONTRACT.md บรรทัด 101-106)
+
+    isinstance(True, int) เป็น True และ int(True) = 1 — {"steps": true} เคยผ่านไปถึง ai-engine ได้
+    และ {"seed": false} กลายเป็น seed 0 เงียบๆ
+    """
+    from unittest.mock import patch
+
+    client = create_app({"TESTING": True, "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:"}).test_client()
+    with patch("app.routes.api.generate_image", side_effect=_must_not_reach_ai_engine):
+        for field in ("steps", "cfg_scale", "seed", "width", "height"):
+            for value in (True, False):
+                res = client.post("/api/generate", json={"prompt": "cat", field: value})
+                assert res.status_code == 400, f"{field}={value} ควรได้ 400 แต่ได้ {res.status_code}"
 
 
 # ==============================================================================
@@ -57,7 +102,9 @@ if __name__ == "__main__":
     tests = [
         ("ตรวจสอบ Request ต้องเป็น JSON", test_generate_requires_json),
         ("ตรวจสอบต้องมีฟิลด์ Prompt", test_generate_requires_prompt),
-        ("ตรวจสอบขอบเขตของค่า Steps (1-100)", test_generate_steps_validation),
+        ("ตรวจสอบขอบเขตของค่า Steps (1-50)", test_generate_steps_validation),
+        ("prompt ไม่ใช่ string / body ไม่ใช่ object -> 400", test_generate_rejects_non_string_fields_and_non_object_body),
+        ("ขอบเขต steps/width/height ตรงกับ ai-engine", test_generate_limits_match_ai_engine),
     ]
 
     passed = 0

@@ -23,19 +23,31 @@ def ping():
 def handle_generate():
     """POST /api/generate — สั่งสร้างภาพใหม่ผ่าน Forge AI หรือ Mock Server (Issue #22)"""
     data = request.get_json(silent=True)
-    if not data:
-        return jsonify({"error": "คำขอต้องเป็น JSON / Request must be JSON"}), 400
+    if not isinstance(data, dict) or not data:
+        return jsonify({"error": "คำขอต้องเป็น JSON object / Request must be a JSON object"}), 400
 
-    prompt = data.get("prompt", "").strip()
-    if not prompt:
+    prompt = data.get("prompt")
+    if not isinstance(prompt, str) or not prompt.strip():
         return jsonify({"error": "กรุณาระบุคำบรรยายภาพ (prompt) / prompt is required"}), 400
+    prompt = prompt.strip()
 
-    negative_prompt = data.get("negative_prompt", "").strip()
+    negative_prompt = data.get("negative_prompt", "")
+    if not isinstance(negative_prompt, str):
+        return jsonify({"error": "negative_prompt ต้องเป็นข้อความ / negative_prompt must be a string"}), 400
+    negative_prompt = negative_prompt.strip()
 
+    # isinstance(True, int) เป็น True และ int(True) = 1 — ต้องกัน bool ก่อนแปลงเป็นตัวเลข
+    # ไม่งั้น {"steps": true} ผ่านไปถึง ai-engine และ {"seed": false} กลายเป็น seed 0 (API_CONTRACT.md)
+    numeric_fields = ("steps", "cfg_scale", "seed", "width", "height")
+    if any(isinstance(data.get(name), bool) for name in numeric_fields):
+        return jsonify({"error": "steps, cfg_scale, seed, width, height ต้องเป็นตัวเลข ไม่ใช่ true/false"}), 400
+
+    # ขอบเขตต้องตรงกับที่ ai-engine (#102) และ API_CONTRACT บังคับ
+    # ไม่งั้นค่าที่ผ่านตรงนี้จะไปโดน ai-engine ปฏิเสธ ผู้ใช้เห็น 502 แทน 400
     try:
         steps = int(data.get("steps", 20))
-        if steps < 1 or steps > 100:
-            return jsonify({"error": "steps ต้องอยู่ระหว่าง 1-100"}), 400
+        if steps < 1 or steps > 50:
+            return jsonify({"error": "steps ต้องอยู่ระหว่าง 1-50"}), 400
     except (ValueError, TypeError):
         return jsonify({"error": "steps ต้องเป็นตัวเลขจำนวนเต็ม / steps must be an integer"}), 400
 
@@ -47,6 +59,8 @@ def handle_generate():
         return jsonify({"error": "cfg_scale ต้องเป็นตัวเลข / cfg_scale must be a number"}), 400
 
     sampler_name = data.get("sampler_name", "DPM++ 2M Karras")
+    if not isinstance(sampler_name, str):
+        return jsonify({"error": "sampler_name ต้องเป็นข้อความ / sampler_name must be a string"}), 400
 
     try:
         seed = int(data.get("seed", -1))
@@ -58,6 +72,8 @@ def handle_generate():
         height = int(data.get("height", 512))
     except (ValueError, TypeError):
         return jsonify({"error": "width และ height ต้องเป็นจำนวนเต็ม"}), 400
+    if width not in (512, 768, 1024) or height not in (512, 768, 1024):
+        return jsonify({"error": "width/height ต้องเป็น 512, 768 หรือ 1024"}), 400
 
     try:
         relative_path, seed_used = generate_image(
