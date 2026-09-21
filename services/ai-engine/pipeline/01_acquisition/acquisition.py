@@ -54,7 +54,10 @@ def load(path, max_bytes=MAX_FILE_BYTES):
         validate_image_file(path, max_bytes=max_bytes)
     except ImageValidationError:
         return None
-    image = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+    # Normalize every accepted input to the three-channel BGR contract used by
+    # the remaining pipeline stages. IMREAD_COLOR drops PNG alpha and expands
+    # grayscale files instead of leaking incompatible 4-channel or 2D arrays.
+    image = cv2.imread(str(path), cv2.IMREAD_COLOR)
     return image if image is not None and image.size else None
 
 

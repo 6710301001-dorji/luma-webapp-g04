@@ -3,6 +3,7 @@
 import importlib.util
 from pathlib import Path
 
+import cv2
 import numpy as np
 import pytest
 from PIL import Image
@@ -50,6 +51,32 @@ def test_extreme_aspect_ratio_is_rejected(tmp_path):
     Image.new("RGB", (100, 1)).save(path)
     with pytest.raises(acquisition.ImageValidationError, match="aspect ratio"):
         acquisition.validate_image_file(path)
+
+
+def test_load_normalizes_alpha_png_to_three_channel_bgr(tmp_path):
+    path = tmp_path / "transparent.png"
+    rgba = np.zeros((8, 10, 4), dtype=np.uint8)
+    rgba[:, :, :3] = (10, 20, 30)
+    rgba[:, :, 3] = 128
+    assert cv2.imwrite(str(path), rgba)
+
+    image = acquisition.load(path)
+
+    assert image.shape == (8, 10, 3)
+    assert image.dtype == np.uint8
+
+
+def test_load_normalizes_grayscale_png_to_three_channel_bgr(tmp_path):
+    path = tmp_path / "grayscale.png"
+    gray = np.arange(80, dtype=np.uint8).reshape(8, 10)
+    assert cv2.imwrite(str(path), gray)
+
+    image = acquisition.load(path)
+
+    assert image.shape == (8, 10, 3)
+    assert np.array_equal(image[:, :, 0], gray)
+    assert np.array_equal(image[:, :, 1], gray)
+    assert np.array_equal(image[:, :, 2], gray)
 
 
 def test_fov_matches_manual_result():
