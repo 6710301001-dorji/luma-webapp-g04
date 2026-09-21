@@ -48,6 +48,7 @@ def backup(db_path, backup_dir):
     if not db_path.is_file():
         raise FileNotFoundError(f"ไม่พบฐานข้อมูล: {db_path}")
 
+    _check_ok(db_path)          # SQLite backup API ยอมคัดลอกจากไฟล์ 0 ไบต์ได้
     backup_dir.mkdir(parents=True, exist_ok=True)
 
     # เวลาอาจซ้ำกันบน Windows จึงลองเลขท้ายชื่อ และจองไฟล์แบบไม่ทับของเดิม
@@ -66,8 +67,11 @@ def backup(db_path, backup_dir):
     try:
         _copy(db_path, target)
         _check_ok(target)      # สำเนาที่ได้ต้องเปิดได้และไม่เสีย
-    except BaseException:
-        target.unlink()
+    except BaseException as error:
+        try:
+            target.unlink(missing_ok=True)
+        except OSError as cleanup_error:
+            error.add_note(f"ลบไฟล์ backup ที่ไม่สมบูรณ์ไม่ได้: {cleanup_error}")
         raise
     return target
 
@@ -93,11 +97,19 @@ def _copy(src, dst):
 
 
 def _check_ok(path):
-    """ให้ SQLite ตรวจไฟล์เอง — ไม่ใช่ไฟล์ฐานข้อมูลหรือไฟล์เสีย จะ raise DatabaseError"""
+    """ตรวจว่าไฟล์เป็นฐาน LUMA ที่เปิดได้และข้อมูลภายในไม่เสีย"""
+    with path.open("rb") as file:
+        if file.read(16) != b"SQLite format 3\x00":
+            raise sqlite3.DatabaseError(f"ไฟล์ไม่ใช่ฐานข้อมูล SQLite: {path}")
+
     with closing(sqlite3.connect(path)) as conn:
         result = conn.execute("PRAGMA integrity_check").fetchone()[0]
-    if result != "ok":
-        raise sqlite3.DatabaseError(f"ไฟล์ฐานข้อมูลเสีย ({result}): {path}")
+        if result != "ok":
+            raise sqlite3.DatabaseError(f"ไฟล์ฐานข้อมูลเสีย ({result}): {path}")
+
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if not {"users", "assets"}.issubset(tables):
+            raise sqlite3.DatabaseError(f"ไฟล์ไม่ใช่ฐานข้อมูล LUMA (ไม่มี users/assets): {path}")
 
 
 def default_db_path():

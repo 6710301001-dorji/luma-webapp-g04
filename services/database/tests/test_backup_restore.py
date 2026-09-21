@@ -146,6 +146,27 @@ def test_failed_backup_does_not_leave_a_broken_file(db_file, tmp_path):
     assert list(backup_dir.glob("*.db")) == []
 
 
+def test_cleanup_does_not_hide_the_copy_error_if_file_is_gone(db_file, tmp_path):
+    """ไฟล์ปลายทางหายก่อน cleanup ต้องยังเห็น error ต้นทางจากการ copy"""
+    def fail_after_removing_target(_source, target):
+        target.unlink()
+        raise sqlite3.DatabaseError("copy failed")
+
+    with patch.object(db_backup, "_copy", side_effect=fail_after_removing_target):
+        with pytest.raises(sqlite3.DatabaseError, match="copy failed"):
+            backup(db_file, tmp_path / "backups")
+
+
+def test_cleanup_failure_keeps_the_original_copy_error(db_file, tmp_path):
+    """ลบไฟล์ที่สำรองค้างไม่ได้ ต้องรายงาน error จากการ copy เป็นเหตุหลัก"""
+    with patch.object(db_backup, "_copy", side_effect=sqlite3.DatabaseError("copy failed")):
+        with patch.object(Path, "unlink", side_effect=PermissionError("file locked")):
+            with pytest.raises(sqlite3.DatabaseError, match="copy failed") as failure:
+                backup(db_file, tmp_path / "backups")
+
+    assert "file locked" in str(failure.value.__notes__)
+
+
 def test_backup_of_missing_db_fails_instead_of_creating_empty_file(tmp_path):
     """sqlite3.connect() สร้างไฟล์เปล่าให้เองถ้าไม่มีไฟล์ — ต้องไม่ได้ backup เปล่าๆ กลับมาแบบเงียบๆ"""
     missing = tmp_path / "nope.db"
@@ -153,6 +174,18 @@ def test_backup_of_missing_db_fails_instead_of_creating_empty_file(tmp_path):
     with pytest.raises(FileNotFoundError):
         backup(missing, tmp_path / "backups")
     assert not missing.exists()
+
+
+def test_backup_rejects_empty_source_without_leaving_a_backup(tmp_path):
+    """ไฟล์ต้นทาง 0 ไบต์ต้องไม่กลายเป็นไฟล์สำรองที่ดูเหมือนสำเร็จ"""
+    empty = tmp_path / "empty.db"
+    empty.touch()
+    backup_dir = tmp_path / "backups"
+
+    with pytest.raises(sqlite3.DatabaseError):
+        backup(empty, backup_dir)
+
+    assert list(backup_dir.glob("*.db")) == []
 
 
 def test_restore_from_broken_backup_keeps_current_db(db_file, tmp_path):
@@ -163,6 +196,31 @@ def test_restore_from_broken_backup_keeps_current_db(db_file, tmp_path):
 
     with pytest.raises(sqlite3.DatabaseError):
         restore(broken, db_file)
+
+    assert count_rows(db_file) == before
+
+
+def test_restore_rejects_empty_backup_without_touching_current_db(db_file, tmp_path):
+    """SQLite เปิดไฟล์ 0 ไบต์ได้ แต่ restore ต้องไม่ใช้มันล้างฐานข้อมูลจริง"""
+    before = count_rows(db_file)
+    empty = tmp_path / "empty.db"
+    empty.touch()
+
+    with pytest.raises(sqlite3.DatabaseError):
+        restore(empty, db_file)
+
+    assert count_rows(db_file) == before
+
+
+def test_restore_rejects_other_sqlite_database_without_touching_current_db(db_file, tmp_path):
+    """ไฟล์ SQLite ที่ไม่ใช่ฐาน LUMA ก็ต้องไม่ล้าง users/assets ของเรา"""
+    before = count_rows(db_file)
+    unrelated = tmp_path / "unrelated.db"
+    with closing(sqlite3.connect(unrelated)) as conn, conn:
+        conn.execute("CREATE TABLE unrelated (id INTEGER)")
+
+    with pytest.raises(sqlite3.DatabaseError):
+        restore(unrelated, db_file)
 
     assert count_rows(db_file) == before
 
