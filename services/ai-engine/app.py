@@ -13,6 +13,11 @@ from flask import Flask, jsonify, request
 from forge.client import ForgeError, generate_image
 
 
+LEGACY_KARRAS_SAMPLERS = {
+    "DPM++ 2M Karras": "DPM++ 2M",
+    "DPM++ SDE Karras": "DPM++ SDE",
+    "DPM++ 2M SDE Karras": "DPM++ 2M SDE",
+}
 extract_palette = import_module("pipeline.04_features.color_palette").extract_palette
 
 
@@ -69,12 +74,17 @@ def create_app(config=None):
         if not isinstance(prompt, str) or not prompt.strip():
             return jsonify({"error": "prompt must be a nonempty string"}), 400
 
+        # An explicit scheduler needs a plain sampler name, without a legacy suffix.
+        default_sampler = "DPM++ 2M Karras"
+        if "scheduler" in data:
+            default_sampler = "DPM++ 2M"
+
         payload = {
             "prompt": prompt.strip(),
             "negative_prompt": data.get("negative_prompt", ""),
             "steps": data.get("steps", 20),
             "cfg_scale": data.get("cfg_scale", 8),
-            "sampler_name": data.get("sampler_name", "DPM++ 2M Karras"),
+            "sampler_name": data.get("sampler_name", default_sampler),
             "seed": data.get("seed", -1),
             "width": data.get("width", 512),
             "height": data.get("height", 512),
@@ -90,6 +100,20 @@ def create_app(config=None):
             return jsonify({"error": "cfg_scale must be between 1 and 30"}), 400
         if not isinstance(payload["negative_prompt"], str) or not isinstance(payload["sampler_name"], str):
             return jsonify({"error": "negative_prompt and sampler_name must be strings"}), 400
+
+        scheduler = data.get("scheduler")
+        if "scheduler" in data and (not isinstance(scheduler, str) or not scheduler.strip()):
+            return jsonify({"error": "scheduler must be a nonempty string"}), 400
+        if scheduler is not None:
+            scheduler = "Karras" if scheduler.strip().casefold() == "karras" else scheduler.strip()
+        sampler = payload["sampler_name"]
+        if sampler in LEGACY_KARRAS_SAMPLERS:
+            if scheduler is not None and scheduler != "Karras":
+                return jsonify({"error": "legacy Karras sampler conflicts with scheduler"}), 400
+            payload["sampler_name"] = LEGACY_KARRAS_SAMPLERS[sampler]
+            scheduler = "Karras"
+        if scheduler is not None:
+            payload["scheduler"] = scheduler
 
         forge_url = app.config["FORGE_URL"]
         if not forge_url:

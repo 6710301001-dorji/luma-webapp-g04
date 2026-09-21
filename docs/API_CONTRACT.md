@@ -82,6 +82,7 @@
 | `steps` | int | 1–50 | 20 | Lecture 2 หน้า 7 (20–60 พอ) |
 | `cfg_scale` | number | 1–30 | **8** | **Lecture 2 หน้า 10 แนะนำ 8–14** |
 | `sampler_name` | string | รายชื่อที่ Forge รองรับ | `"DPM++ 2M Karras"` | Lecture 2 หน้า 8–10 |
+| `scheduler` | string (optional) | Nonempty Forge scheduler name; see AI engine rules below | Omitted; legacy Karras names imply `Karras` | AI engine support; backend forwarding requires coordination |
 | `seed` | int | `-1` = สุ่ม | `-1` | Lecture 2 หน้า 5–6 |
 | `width` / `height` | int | 512 / 768 / 1024 | 512 | – |
 
@@ -176,6 +177,33 @@ backend เรียกผ่าน `AI_ENGINE_URL` ที่อ่านจา�
 พารามิเตอร์เดียวกับ `/api/generate` → ตอบ `{ "images": ["<base64>"], "seed_used": 12345 }`
 
 > `seed_used` สำคัญ — ถ้าส่ง `seed: -1` ผู้ใช้ต้องรู้ว่าได้ seed อะไรเพื่อทำซ้ำได้
+
+#### Optional scheduler for txt2img
+
+`POST /forge/txt2img` accepts `scheduler` as an optional nonempty string.
+Use a scheduler name supported by the connected Forge installation, for example
+`"Karras"`. The bridge does not maintain a fixed allowlist: it trims surrounding
+whitespace, normalizes any casing of `"karras"` to `"Karras"`, and forwards other
+nonempty names unchanged. Forge determines whether those other names are supported.
+Null, empty, whitespace-only, and non-string values receive HTTP 400.
+
+- Legacy `DPM++ 2M Karras`, `DPM++ SDE Karras`, and `DPM++ 2M SDE Karras`
+  are translated into the corresponding plain sampler plus `scheduler: "Karras"`.
+  Pairing any of these names with a different scheduler receives HTTP 400.
+- If both fields are omitted, the outgoing request uses `DPM++ 2M` and `Karras`.
+- If only `scheduler` is supplied, `sampler_name` defaults to `DPM++ 2M`.
+- If a plain sampler is supplied without `scheduler`, the scheduler field is
+  omitted from the outgoing request and Forge chooses its default.
+
+Example AI engine request:
+```json
+{"prompt":"a tree","sampler_name":"DPM++ 2M","scheduler":"Karras","seed":123}
+```
+
+This addition applies to the AI engine txt2img endpoint. The backend owner must
+confirm forwarding `scheduler` from `/api/generate`; the existing backend's
+legacy sampler value remains supported. It does not add scheduler support to
+img2img. Response fields remain `images` and `seed_used`.
 
 ### `POST /forge/img2img`
 ```json
