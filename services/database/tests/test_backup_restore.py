@@ -18,8 +18,12 @@
 import os
 import sqlite3
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
+from datetime import datetime, timezone
 from pathlib import Path
+from threading import Barrier
+from unittest.mock import patch
 
 import pytest
 from flask_migrate import upgrade
@@ -28,6 +32,7 @@ DATABASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(DATABASE_DIR))
 sys.path.insert(0, str(DATABASE_DIR / "backup"))
 
+import db_backup  # noqa: E402
 from db_backup import backup, restore  # noqa: E402
 
 
@@ -90,6 +95,55 @@ def test_backup_name_has_timestamp_and_never_overwrites(db_file, tmp_path):
     assert first != second
     assert first.exists() and second.exists()
     assert first.name.startswith("luma-2")  # luma-<ปี ค.ศ.>...
+
+
+def test_backup_names_stay_unique_when_clock_does_not_advance(db_file, tmp_path):
+    """Windows อาจคืน timestamp เดิมสองครั้งติดกัน แต่ backup ต้องสำเร็จทั้งคู่"""
+    backup_dir = tmp_path / "backups"
+    fixed_time = datetime(2026, 9, 21, 14, 0, tzinfo=timezone.utc)
+
+    with patch.object(db_backup, "datetime") as clock:
+        clock.now.return_value = fixed_time
+        first = backup(db_file, backup_dir)
+        second = backup(db_file, backup_dir)
+
+    assert first != second
+    assert count_rows(first) == count_rows(db_file)
+    assert count_rows(second) == count_rows(db_file)
+
+
+def test_simultaneous_backups_do_not_claim_the_same_name(db_file, tmp_path):
+    """สองงานที่เริ่มพร้อมกันและได้เวลาเดียวกันต้องได้ไฟล์คนละชื่อ"""
+    backup_dir = tmp_path / "backups"
+    start = Barrier(2)
+    fixed_time = datetime(2026, 9, 21, 14, 0, tzinfo=timezone.utc)
+
+    def same_time(_timezone):
+        start.wait(timeout=5)
+        return fixed_time
+
+    with patch.object(db_backup, "datetime") as clock:
+        clock.now.side_effect = same_time
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            first_job = workers.submit(backup, db_file, backup_dir)
+            second_job = workers.submit(backup, db_file, backup_dir)
+            first = first_job.result()
+            second = second_job.result()
+
+    assert first != second
+    assert count_rows(first) == count_rows(db_file)
+    assert count_rows(second) == count_rows(db_file)
+
+
+def test_failed_backup_does_not_leave_a_broken_file(db_file, tmp_path):
+    """ตรวจความสมบูรณ์ไม่ผ่าน ต้องไม่เหลือไฟล์ที่ดูเหมือน backup ใช้ได้"""
+    backup_dir = tmp_path / "backups"
+
+    with patch.object(db_backup, "_check_ok", side_effect=sqlite3.DatabaseError("broken")):
+        with pytest.raises(sqlite3.DatabaseError):
+            backup(db_file, backup_dir)
+
+    assert list(backup_dir.glob("*.db")) == []
 
 
 def test_backup_of_missing_db_fails_instead_of_creating_empty_file(tmp_path):

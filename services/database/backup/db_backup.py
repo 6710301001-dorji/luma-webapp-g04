@@ -50,14 +50,25 @@ def backup(db_path, backup_dir):
 
     backup_dir.mkdir(parents=True, exist_ok=True)
 
-    # ใส่ถึงระดับไมโครวินาที เพื่อให้ backup 2 ครั้งติดกันได้คนละชื่อ
+    # เวลาอาจซ้ำกันบน Windows จึงลองเลขท้ายชื่อ และจองไฟล์แบบไม่ทับของเดิม
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
-    target = backup_dir / f"luma-{stamp}.db"
-    if target.exists():
-        raise FileExistsError(f"มีไฟล์ชื่อนี้อยู่แล้ว ไม่เขียนทับ: {target}")
+    number = 0
+    while True:
+        suffix = "" if number == 0 else f"-{number}"
+        target = backup_dir / f"luma-{stamp}{suffix}.db"
+        try:
+            with target.open("xb"):
+                pass
+            break
+        except FileExistsError:
+            number += 1
 
-    _copy(db_path, target)
-    _check_ok(target)          # สำเนาที่ได้ต้องเปิดได้และไม่เสีย
+    try:
+        _copy(db_path, target)
+        _check_ok(target)      # สำเนาที่ได้ต้องเปิดได้และไม่เสีย
+    except BaseException:
+        target.unlink()
+        raise
     return target
 
 
