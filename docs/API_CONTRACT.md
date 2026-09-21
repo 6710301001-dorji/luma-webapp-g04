@@ -141,6 +141,30 @@ Query params ที่ต้องรองรับ (สเปก Asset Hub —
 ```
 ลบทั้งไฟล์บนดิสก์และแถวใน DB · ไฟล์หายไปแล้วแต่แถวยังอยู่ → ไม่ fail แค่ log warning
 
+### `POST /api/pipeline/palette/extract` — Smart Canvas (Issue #101, #60)
+
+```json
+// request
+{ "image": "<base64>" }
+
+// response
+{ "colors": ["#2f3ba3", "#5c6bc0", "#ff6b6b", "#4ecdc4", "#1a535c"] }
+```
+
+Backend เรียก `POST /pipeline/04_features/color_palette` ต่อ (ดูหัวข้อ Backend → AI Engine)
+แล้วดึงเฉพาะ `metrics.color_palette` ออกมาห่อเป็น `{colors: [...]}` ให้ `canvas.js` ใช้ตรงๆ
+(`canvas.js` เขียนไว้ก่อนแล้วว่าอ่าน `data.colors` เป็น array ของ hex string ไม่ใช่ object)
+
+เชื่อมต่อ ai-engine ไม่ได้ หรือ response ไม่มี `metrics.color_palette` → 502
+
+> ⚠️ ยังไม่บังคับ login — endpoint นี้ไม่แตะข้อมูลที่เก็บไว้ของผู้ใช้คนไหนเลย (ไม่มี id ให้เดา)
+> เป็นแค่ transform ภาพที่ส่งมาในคำขอเอง ต่างจาก `GET /api/assets` ที่ต้องป้องกันข้อมูลที่เก็บไว้จริง
+
+### `POST /api/pipeline/segmentation/remove_bg` — Smart Canvas (Issue #101, #61)
+
+⬜ **ยังไม่ implement** — รอ `03_segmentation` ที่ยังไม่มีโค้ด pipeline เลยสักบรรทัด (ตรวจแล้ว ณ วันที่เขียนหัวข้อนี้)
+`canvas.js` เรียก endpoint นี้ไว้แล้วแต่ backend ยังไม่มี route ตอบเลย (404)
+
 ---
 
 ## Backend → AI Engine

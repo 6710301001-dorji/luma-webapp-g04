@@ -6,6 +6,7 @@ Endpoint สร้างภาพ AI (Issue #22)
 from flask import Blueprint, current_app, jsonify, request
 from app.models import db, Asset
 from app.services.forge_client import generate_image, ForgeClientError
+from app.services.ai_engine_client import extract_color_palette, PipelineClientError
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
@@ -90,3 +91,34 @@ def handle_generate():
         "asset_id": new_asset.id,
         "image_url": f"/api/assets/{new_asset.id}/image",
     }), 200
+
+
+@api_bp.route("/pipeline/palette/extract", methods=["POST"])
+def handle_palette_extract():
+    """POST /api/pipeline/palette/extract — สกัดจานสีเด่นจากภาพ (Issue #101, #60)
+
+    รับภาพจาก Smart Canvas (canvas.js) เป็น base64 แล้วส่งต่อให้ ai-engine
+    ประมวลผลจริงผ่าน POST /pipeline/04_features/color_palette (มี mock ให้ทดสอบ
+    แล้วที่ tools/mock_forge_server.py)
+
+    ไม่บังคับ login เหมือน /api/generate — endpoint นี้ไม่แตะข้อมูลที่เก็บไว้ของ
+    ผู้ใช้คนไหนเลย (ไม่มี id ให้เดา ไม่มีความเสี่ยง IDOR) เป็นแค่ transform ภาพที่
+    ส่งมาในคำขอเอง ต่างจาก GET /api/assets ที่ต้องป้องกันข้อมูลที่เก็บไว้จริง
+    """
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"error": "คำขอต้องเป็น JSON / Request must be JSON"}), 400
+
+    image_b64 = data.get("image", "").strip()
+    if not image_b64:
+        return jsonify({"error": "กรุณาระบุภาพ (image) / image is required"}), 400
+
+    try:
+        colors = extract_color_palette(image_b64, colors=5)
+    except PipelineClientError as e:
+        return jsonify({"error": e.message}), e.status_code
+    except Exception as e:
+        current_app.logger.error(f"เกิดข้อผิดพลาดในการสกัดจานสี: {e}", exc_info=True)
+        return jsonify({"error": "เกิดข้อผิดพลาดในการติดต่อ AI Engine / Internal Server Error"}), 500
+
+    return jsonify({"colors": colors}), 200
