@@ -11,6 +11,7 @@ import os
 import logging
 from flask import Flask, jsonify
 from flask_migrate import Migrate
+from flask_wtf.csrf import CSRFProtect, generate_csrf
 from app.models import db
 
 
@@ -90,6 +91,12 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     migrations_dir = os.path.abspath(os.path.join(backend_dir, "..", "database", "migrations"))
     migrate = Migrate(app, db, directory=migrations_dir)
 
+    # CSRF (#51) — POST/PUT/PATCH/DELETE ต้องมี header X-CSRFToken ไม่งั้น 400
+    # (CSRFError เป็น BadRequest จึงออกเป็น JSON ผ่าน handler 400 ด้านล่างเอง)
+    # ปิดไว้ตอน TESTING เป็นค่าเริ่มต้น test ที่ต้องการตรวจ CSRF เปิดเองด้วย WTF_CSRF_ENABLED=True
+    app.config.setdefault("WTF_CSRF_ENABLED", not app.config.get("TESTING"))
+    CSRFProtect(app)
+
     # ==========================================================================
     # Security Headers (OWASP) แนบในทุก Response (Issue #51)
     # ==========================================================================
@@ -105,6 +112,16 @@ def create_app(config_overrides: dict | None = None) -> Flask:
             "script-src 'self' 'unsafe-inline'; "
             "style-src 'self' 'unsafe-inline';"
         )
+        # ส่ง CSRF token ใน cookie ที่ JS อ่านได้ (ไม่ HttpOnly) — js/csrf.js ใส่ค่านี้ใน header ทุก POST
+        # เว็บอื่นอ่าน cookie ของ origin นี้ไม่ได้ จึงปลอม header ไม่ได้
+        # ส่งใหม่ทุก response ให้ token สดตลอดตอนผู้ใช้ยังใช้งานอยู่ (หมดอายุ 1 ชม. ตาม Flask-WTF)
+        if app.config["WTF_CSRF_ENABLED"]:
+            response.set_cookie(
+                "csrf_token",
+                generate_csrf(),
+                samesite="Lax",
+                secure=app.config.get("SESSION_COOKIE_SECURE", False),
+            )
         return response
 
     # ==========================================================================
