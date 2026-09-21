@@ -5,6 +5,17 @@
 ## หน้าที่
 
 จากภาพ + mask ที่ได้จาก `03_segmentation` → คำนวณ **ตัวเลขที่บรรยายภาพ**
+
+## Fixed-length feature vector
+
+`feature_vector.py` implements issue #62 using normalized eight-bin histograms
+for the B, G, and R channels plus grayscale mean, standard deviation, skewness,
+and kurtosis. The result always contains 28 finite values, regardless of image
+dimensions, and is deterministic for the same input.
+
+`distance()` compares two vectors using Euclidean distance. This supports the
+rule-based classification and automatic tagging work without adding a learned
+model or accessing another service.
 แล้วใช้ตัวเลขนั้นคัดแยก (Classification) หรือวิเคราะห์ (Analysis)
 
 ## ทำไมต้องคิดเรื่อง feature ก่อนเลือกวิธี
@@ -31,6 +42,13 @@
 - **contrast** = `(Imax−Imin)/(Imax+Imin)` (หน้า 20)
 
 ### จากสี (Lecture 5 หน้า 37–62)
+
+`color_palette.py` now provides `extract_palette(image)` for a `uint8` BGR
+image. It returns up to five CSS hex colors with proportions summing to 1,
+sorted from most to least common. Solid or two-color images return only their
+actual distinct colors. More complex images use median-cut color quantization.
+This extractor works in RGB after OpenCV BGR conversion, so it does not depend
+on OpenCV's 0–179 hue scale.
 - histogram ของ hue → **สีเด่นของภาพ** → ใช้ทำ **Color Palette** ใน Smart Canvas ได้ตรงๆ
 - สัดส่วนพิกเซลที่มีสีจริง (sat/val เกินเกณฑ์) เทียบกับพิกเซลกลาง
 - ค่าเฉลี่ย saturation / value
@@ -39,6 +57,13 @@
 > ช่วง hue ทีละ 30° เพื่อหา 3 ช่วงที่มีพิกเซลมากที่สุดไว้แล้ว → **นั่นคือ color palette extractor**
 
 ### จากรูปร่าง (ต่อจาก contour ใน 03)
+
+`shape_sharpness.py` implements `contour_features(contour)` for area, perimeter,
+bounding-box aspect ratio, and circularity. It simplifies pixel staircase
+artifacts before measuring geometry. `sharpness(image)` measures Fourier power
+above a configurable spatial-frequency cutoff (default 0.25 cycles per pixel).
+The score is relative: compare images with the same dimensions and intensity
+scale; a Gaussian-blurred copy should score lower than its sharp original.
 - พื้นที่, เส้นรอบรูป, aspect ratio ของ bounding box
 - ความกลม `4π·area/perimeter²`
 - จำนวนวัตถุที่นับได้

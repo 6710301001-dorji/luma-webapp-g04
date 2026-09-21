@@ -60,6 +60,20 @@
 
 > เก็บ output ทั้งหมดไว้เป็นไฟล์ ไม่ใช่แค่ print ออกจอ — ต้องเอาไปใส่รายงาน
 
+## Segmentation metrics
+
+`segmentation_metrics.py` measures binary masks for issue #67:
+
+- IoU measures overlap with the hand-drawn ground truth.
+- Precision measures how many selected pixels really belong to the object.
+- Recall measures how many ground-truth object pixels were found.
+- Pixel confusion counts show true/false positives and negatives.
+- `evaluate_cases()` requires at least five named mask pairs.
+- `write_csv()` saves a complete per-case table for the report.
+
+Five reproducible fixtures are stored in `../../samples/segmentation/`. They
+exercise the code but do not replace evaluation on final project photographs.
+
 ## เชื่อมกับเมธอดในสไลด์
 
 **Lecture 1 หน้า 10–13** วางลำดับการทำวิจัยไว้: **Algorithm → Experiment → Conclusion**
