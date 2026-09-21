@@ -9,7 +9,7 @@ Issue #51 — OWASP Security Headers, Cookie Hardening & Rate Limiting
 
 import os
 import logging
-from flask import Flask, jsonify, redirect
+from flask import Flask, jsonify
 from flask_migrate import Migrate
 from app.models import db
 
@@ -159,6 +159,6 @@ def create_app(config_overrides: dict | None = None) -> Flask:
 
     @app.route("/")
     def index():
-        return redirect("/pages/index.html")
+        return app.redirect("/pages/index.html")
 
     return app
