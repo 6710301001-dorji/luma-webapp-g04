@@ -15,6 +15,20 @@ The LUMA backend calls `POST http://127.0.0.1:8000/forge/txt2img` with JSON such
 `/sdapi/v1/txt2img` endpoint and returns `{"images":["<base64>"],"seed_used":123}`.
 The backend stores the image; this service does not return a local file path.
 
+## Image-to-image bridge
+
+`POST /forge/img2img` accepts a plain base64 `init_image`, `prompt`, and
+`denoising_strength` (0–1). `mode` may be `text`, `sketch`, `inpaint`, or
+`inpaint-sketch`; both inpaint modes require a same-size base64 `mask`.
+The sketch mode expects the already painted source image. The service validates
+inputs, forwards the source image as Forge's `init_images` list, and returns
+`{"images":["<base64>"],"seed_used":123}`. Invalid input receives 400.
+
+Forge's real `/sdapi/v1/img2img` API uses `init_images`. The current project
+mock accepts `init_image` at that path instead, so bridge tests verify the real
+Forge request shape with a stubbed HTTP response. Visual comparison of low and
+high denoising strengths still requires a running Forge model.
+
 When Forge runs on another computer, set `FORGE_URL` to its reachable address
 (for example, `http://192.168.1.30:7860`) before starting this service. `localhost`
 always refers to the computer running this service. Set `AI_ENGINE_HOST=0.0.0.0`
