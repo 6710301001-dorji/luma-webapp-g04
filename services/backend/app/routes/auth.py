@@ -56,9 +56,15 @@ def ping():
 def register():
     """POST /api/auth/register — สมัครสมาชิกใหม่ บันทึกลงตาราง users จริง (Issue #16/#50)"""
     data = request.get_json(silent=True) or {}
-    email = data.get("email", "").strip().lower()
-    display_name = data.get("displayName", "").strip()
+    if not isinstance(data, dict):
+        return jsonify({"error": "คำขอต้องเป็น JSON object / Request must be a JSON object"}), 400
+    email = data.get("email", "")
+    display_name = data.get("displayName", "")
     password = data.get("password", "")
+    if not all(isinstance(v, str) for v in (email, display_name, password)):
+        return jsonify({"error": "email, displayName, password ต้องเป็นข้อความ / must be strings"}), 400
+    email = email.strip().lower()
+    display_name = display_name.strip()
 
     if not email or "@" not in email:
         return jsonify({"error": "กรุณาระบุอีเมลที่ถูกต้อง / Valid email required"}), 400
@@ -101,8 +107,13 @@ def login():
         }), 429
 
     data = request.get_json(silent=True) or {}
-    email = data.get("email", "").strip().lower()
+    if not isinstance(data, dict):
+        return jsonify({"error": "คำขอต้องเป็น JSON object / Request must be a JSON object"}), 400
+    email = data.get("email", "")
     password = data.get("password", "")
+    if not isinstance(email, str) or not isinstance(password, str):
+        return jsonify({"error": "email และ password ต้องเป็นข้อความ / must be strings"}), 400
+    email = email.strip().lower()
 
     if not email or not password:
         return jsonify({"error": "กรุณาระบุอีเมลและรหัสผ่าน / Email and password required"}), 400

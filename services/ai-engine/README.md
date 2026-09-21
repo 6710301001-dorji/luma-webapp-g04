@@ -15,6 +15,30 @@ The LUMA backend calls `POST http://127.0.0.1:8000/forge/txt2img` with JSON such
 `/sdapi/v1/txt2img` endpoint and returns `{"images":["<base64>"],"seed_used":123}`.
 The backend stores the image; this service does not return a local file path.
 
+### Sampler and scheduler on newer Forge versions
+
+`POST /forge/txt2img` also accepts an optional `scheduler` string. The legacy
+default `DPM++ 2M Karras` is sent to Forge as
+`{"sampler_name":"DPM++ 2M","scheduler":"Karras"}`. The same translation
+applies to `DPM++ SDE Karras` and `DPM++ 2M SDE Karras`. A caller may instead
+send separate values such as `{"sampler_name":"Euler a","scheduler":"Karras"}`.
+Conflicting combinations receive HTTP 400. The API response still contains
+`images` and `seed_used`; actual scheduler behavior should be checked with real
+Forge when it is available.
+
+## Smart Canvas palette route
+
+`POST /pipeline/04_features/color_palette` accepts plain base64 image bytes:
+
+```json
+{"image":"<base64 PNG or JPEG>","params":{"colors":5}}
+```
+
+It uses the existing `pipeline/04_features/color_palette.py` extractor and
+returns `{"image":"<base64>","metrics":{"color_palette":["#ff0000"]}}`.
+The backend removes the Data URL prefix sent by the browser before calling this
+route. Invalid images or parameters receive HTTP 400.
+
 When Forge runs on another computer, set `FORGE_URL` to its reachable address
 (for example, `http://192.168.1.30:7860`) before starting this service. `localhost`
 always refers to the computer running this service. Set `AI_ENGINE_HOST=0.0.0.0`

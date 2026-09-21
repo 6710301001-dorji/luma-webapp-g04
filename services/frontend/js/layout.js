@@ -68,6 +68,7 @@
     try {
       await fetch(`${API_BASE}/api/auth/logout`, {
         method: "POST",
+        headers: { ...window.csrfHeaders() },
         credentials: "include",
       });
     } catch (err) {

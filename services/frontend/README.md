@@ -18,16 +18,17 @@
 service นี้เป็น HTML / CSS / JS ล้วน จึง **ไม่มี `requirements.txt`**
 เครื่อง frontend (192.168.1.10) ไม่ต้องลง OpenCV, Flask หรืออะไรเลย
 
-**ตอน dev** เสิร์ฟด้วย web server ที่ติดมากับ Python ได้เลย:
+**ตอน dev** backend เสิร์ฟโฟลเดอร์นี้ให้เองที่ origin เดียวกับ API:
 ```bash
-cd services/frontend
-python -m http.server 8080
+python services/backend/run.py
+# แล้วเปิด http://127.0.0.1:5000/
 ```
 
-**ตอน V5** Nginx เสิร์ฟให้ — ดู [`../../deploy/README.md`](../../deploy/README.md)
+> ⚠️ อย่าใช้ `python -m http.server 8080` — หน้าเว็บจะอยู่คนละ origin กับ API (:5000)
+> browser บล็อก `fetch()` เพราะ backend ไม่มี CORS และ cookie session ไม่ถูกส่งไป
+> JS ทุกไฟล์ใช้ URL แบบ relative (`API_BASE = ""`) ซึ่งทำงานได้เฉพาะเมื่ออยู่ origin เดียวกัน
 
-> ช่วง V1–V3 ไฟล์หน้าเว็บยังอยู่ที่ `../backend/app/templates/` เพราะ Flask render ให้
-> จะย้ายมาที่นี่ตอน V4 (ดู issue V4 ใน `docs/ROADMAP.md`)
+**ตอน V5** Nginx เสิร์ฟให้ (`/` → frontend, `/api/` → backend ยัง origin เดียวกัน) — ดู [`../../deploy/README.md`](../../deploy/README.md)
 
 ## โครงสร้างที่ตั้งใจไว้
 
@@ -41,9 +42,10 @@ frontend/
 
 ## V1–V3 กับ V4 ต่างกันอย่างไร
 
-- **V1–V3**: Flask render Jinja2 template → ไฟล์อยู่ที่ `backend/app/templates/`
-- **V4 ขึ้นไป**: แยกออกมาเป็น static file ในโฟลเดอร์นี้ เสิร์ฟจากเครื่องคนละเครื่อง
-  → ตอนนั้น `fetch()` จะเป็น cross-origin ต้องตั้ง CORS ที่ backend ด้วย
+- **ตอนนี้ (V1–V3)**: static file ในโฟลเดอร์นี้ เสิร์ฟโดย Flask ที่ origin เดียวกับ API
+- **V4 ขึ้นไป**: ถ้าเสิร์ฟจากเครื่องคนละเครื่องแบบคนละ origin — ต้องตั้ง `window.LUMA_CONFIG.apiBase`
+  + CORS ที่ backend + `credentials: "include"` ใน `fetch()` ทุกจุด
+  (ถ้าให้ nginx รวมไว้ origin เดียวแบบ V5 ไม่ต้องทำสามอย่างนี้)
 
 > เขียน JS โดยคิดล่วงหน้าว่า API base URL จะเปลี่ยน — เก็บไว้ที่เดียว
 > เช่น `const API_BASE = window.LUMA_CONFIG.apiBase;` ไม่ใช่ hardcode `/api` กระจายทั่วไฟล์

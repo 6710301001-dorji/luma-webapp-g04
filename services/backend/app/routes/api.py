@@ -8,6 +8,7 @@ import os
 from flask import Blueprint, current_app, jsonify, request, send_file, session
 from app.models import db, Asset
 from app.services.forge_client import generate_image, ForgeClientError
+from app.services.ai_engine_client import extract_color_palette, PipelineClientError
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
@@ -20,21 +21,40 @@ def ping():
 
 @api_bp.route("/generate", methods=["POST"])
 def handle_generate():
-    """POST /api/generate — สั่งสร้างภาพใหม่ผ่าน Forge AI หรือ Mock Server (Issue #22)"""
+    """POST /api/generate — สั่งสร้างภาพใหม่ผ่าน Forge AI หรือ Mock Server (Issue #22)
+
+    ต้อง login — ภาพผูกเจ้าของเป็นคนที่ login อยู่ (#115) และคนนอกใช้ GPU ไม่ได้
+    """
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "ยังไม่ได้เข้าสู่ระบบ / Unauthorized"}), 401
+
     data = request.get_json(silent=True)
-    if not data:
-        return jsonify({"error": "คำขอต้องเป็น JSON / Request must be JSON"}), 400
+    if not isinstance(data, dict) or not data:
+        return jsonify({"error": "คำขอต้องเป็น JSON object / Request must be a JSON object"}), 400
 
-    prompt = data.get("prompt", "").strip()
-    if not prompt:
+    prompt = data.get("prompt")
+    if not isinstance(prompt, str) or not prompt.strip():
         return jsonify({"error": "กรุณาระบุคำบรรยายภาพ (prompt) / prompt is required"}), 400
+    prompt = prompt.strip()
 
-    negative_prompt = data.get("negative_prompt", "").strip()
+    negative_prompt = data.get("negative_prompt", "")
+    if not isinstance(negative_prompt, str):
+        return jsonify({"error": "negative_prompt ต้องเป็นข้อความ / negative_prompt must be a string"}), 400
+    negative_prompt = negative_prompt.strip()
 
+    # isinstance(True, int) เป็น True และ int(True) = 1 — ต้องกัน bool ก่อนแปลงเป็นตัวเลข
+    # ไม่งั้น {"steps": true} ผ่านไปถึง ai-engine และ {"seed": false} กลายเป็น seed 0 (API_CONTRACT.md)
+    numeric_fields = ("steps", "cfg_scale", "seed", "width", "height")
+    if any(isinstance(data.get(name), bool) for name in numeric_fields):
+        return jsonify({"error": "steps, cfg_scale, seed, width, height ต้องเป็นตัวเลข ไม่ใช่ true/false"}), 400
+
+    # ขอบเขตต้องตรงกับที่ ai-engine (#102) และ API_CONTRACT บังคับ
+    # ไม่งั้นค่าที่ผ่านตรงนี้จะไปโดน ai-engine ปฏิเสธ ผู้ใช้เห็น 502 แทน 400
     try:
         steps = int(data.get("steps", 20))
-        if steps < 1 or steps > 100:
-            return jsonify({"error": "steps ต้องอยู่ระหว่าง 1-100"}), 400
+        if steps < 1 or steps > 50:
+            return jsonify({"error": "steps ต้องอยู่ระหว่าง 1-50"}), 400
     except (ValueError, TypeError):
         return jsonify({"error": "steps ต้องเป็นตัวเลขจำนวนเต็ม / steps must be an integer"}), 400
 
@@ -46,6 +66,8 @@ def handle_generate():
         return jsonify({"error": "cfg_scale ต้องเป็นตัวเลข / cfg_scale must be a number"}), 400
 
     sampler_name = data.get("sampler_name", "DPM++ 2M Karras")
+    if not isinstance(sampler_name, str):
+        return jsonify({"error": "sampler_name ต้องเป็นข้อความ / sampler_name must be a string"}), 400
 
     try:
         seed = int(data.get("seed", -1))
@@ -57,6 +79,8 @@ def handle_generate():
         height = int(data.get("height", 512))
     except (ValueError, TypeError):
         return jsonify({"error": "width และ height ต้องเป็นจำนวนเต็ม"}), 400
+    if width not in (512, 768, 1024) or height not in (512, 768, 1024):
+        return jsonify({"error": "width/height ต้องเป็น 512, 768 หรือ 1024"}), 400
 
     try:
         relative_path, seed_used = generate_image(
@@ -79,6 +103,7 @@ def handle_generate():
         new_asset = Asset(
             prompt=prompt,
             file_path=relative_path,
+            user_id=user_id,
         )
         db.session.add(new_asset)
         db.session.commit()
@@ -98,11 +123,9 @@ def handle_generate():
 def list_assets():
     """GET /api/assets — รายการผลงาน เรียงใหม่->เก่า รองรับค้นหา+แบ่งหน้า (docs/API_CONTRACT.md ข้อ 2)
 
-    บังคับ login แล้ว (session["user_id"] ต้องมี ไม่งั้น 401) — รีวิว PR #99 ข้อ 1
-    แต่ยังไม่กรองตามเจ้าของ (asset.user_id) — POST /api/generate ยังไม่ผูก asset
-    กับผู้ใช้ที่ login อยู่ (ดู #96: user_id เป็น nullable ไว้ก่อนตั้งใจ รอ auth)
-    เป็นงานต่อเนื่องที่ต้องทำก่อนเปิด ownership filter ตรงนี้ ไม่งั้น asset
-    เก่าทั้งหมด (user_id เป็น NULL) จะหายไปจากทุกคนทันที
+    ต้อง login และเห็นเฉพาะของตัวเอง (#115)
+    asset เก่าที่ user_id เป็น NULL (สร้างก่อน /api/generate ผูกเจ้าของ) ไม่มีใครเห็น
+    แต่ยังอยู่ใน DB — จะทำอะไรกับมันต่อเป็นเรื่องของ migration #97
     """
     if "user_id" not in session:
         return jsonify({"error": "ยังไม่ได้เข้าสู่ระบบ / Unauthorized"}), 401
@@ -111,7 +134,7 @@ def list_assets():
     per_page = request.args.get("per_page", 20, type=int)
     q = request.args.get("q", "", type=str).strip()
 
-    query = Asset.query
+    query = Asset.query.filter(Asset.user_id == session["user_id"])
     if q:
         # autoescape=True กัน % และ _ ใน q ทำตัวเป็น SQL wildcard เอง
         # (ไม่งั้น q="long_hair" จะ match "longXhair" ด้วย เพราะ _ = ตัวอะไรก็ได้ 1 ตัว)
@@ -137,16 +160,14 @@ def list_assets():
 def get_asset_image(asset_id: int):
     """GET /api/assets/<asset_id>/image — เสิร์ฟไฟล์ภาพจริง (docs/API_CONTRACT.md ข้อ 2)
 
-    บังคับ login แล้ว (session["user_id"] ต้องมี ไม่งั้น 401) — รีวิว PR #99 ข้อ 1
-    ⚠️ ownership check ("ต้องล็อกอิน + เป็นเจ้าของ ไม่งั้น 404" ตาม API_CONTRACT.md)
-    ยังเปิดแค่ครึ่งเดียว (login) — กรองตามเจ้าของยังรอ /api/generate set user_id
-    ก่อน เหตุผลเดียวกับ list_assets() ด้านบน
+    ต้อง login + เป็นเจ้าของ ไม่งั้น 404 (API_CONTRACT.md) — ไม่ใช่ 403 เพราะ 403 บอก
+    ผู้โจมตีว่า id นั้นมีอยู่จริง ไม่มีภาพ กับ มีแต่เป็นของคนอื่น ต้องแยกไม่ออก
     """
     if "user_id" not in session:
         return jsonify({"error": "ยังไม่ได้เข้าสู่ระบบ / Unauthorized"}), 401
 
     asset = db.session.get(Asset, asset_id)
-    if asset is None:
+    if asset is None or asset.user_id != session["user_id"]:
         return jsonify({"error": "ไม่พบภาพที่ระบุ / Asset not found"}), 404
 
     full_path = os.path.join(current_app.instance_path, asset.file_path)
@@ -154,3 +175,35 @@ def get_asset_image(asset_id: int):
         return jsonify({"error": "ไฟล์ภาพสูญหาย / Image file not found on disk"}), 404
 
     return send_file(full_path, mimetype="image/png")
+
+
+@api_bp.route("/pipeline/palette/extract", methods=["POST"])
+def handle_palette_extract():
+    """POST /api/pipeline/palette/extract — สกัดจานสีเด่นจากภาพ (Issue #101, #60)
+
+    รับภาพจาก Smart Canvas (canvas.js) เป็น base64 แล้วส่งต่อให้ ai-engine
+    ประมวลผลจริงผ่าน POST /pipeline/04_features/color_palette (มี mock ให้ทดสอบ
+    แล้วที่ tools/mock_forge_server.py)
+
+    ไม่บังคับ login เหมือน /api/generate — endpoint นี้ไม่แตะข้อมูลที่เก็บไว้ของ
+    ผู้ใช้คนไหนเลย (ไม่มี id ให้เดา ไม่มีความเสี่ยง IDOR) เป็นแค่ transform ภาพที่
+    ส่งมาในคำขอเอง ต่างจาก GET /api/assets ที่ต้องป้องกันข้อมูลที่เก็บไว้จริง
+    """
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or not data:
+        return jsonify({"error": "คำขอต้องเป็น JSON object / Request must be a JSON object"}), 400
+
+    image_b64 = data.get("image")
+    if not isinstance(image_b64, str) or not image_b64.strip():
+        return jsonify({"error": "กรุณาระบุภาพ (image) เป็น string / image must be a non-empty string"}), 400
+    image_b64 = image_b64.strip()
+
+    try:
+        colors = extract_color_palette(image_b64, colors=5)
+    except PipelineClientError as e:
+        return jsonify({"error": e.message}), e.status_code
+    except Exception as e:
+        current_app.logger.error(f"เกิดข้อผิดพลาดในการสกัดจานสี: {e}", exc_info=True)
+        return jsonify({"error": "เกิดข้อผิดพลาดในการติดต่อ AI Engine / Internal Server Error"}), 500
+
+    return jsonify({"colors": colors}), 200
