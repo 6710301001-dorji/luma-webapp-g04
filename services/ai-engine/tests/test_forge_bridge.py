@@ -1,14 +1,26 @@
 """Check the LUMA-to-Forge request and response boundary."""
 
+import base64
 import json
 import sys
+from io import BytesIO
 from pathlib import Path
 
 import pytest
 import requests
+from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app import create_app  # noqa: E402
+
+
+def _valid_png_base64():
+    output = BytesIO()
+    Image.new("RGB", (2, 2), (20, 80, 140)).save(output, format="PNG")
+    return base64.b64encode(output.getvalue()).decode("ascii")
+
+
+VALID_PNG = _valid_png_base64()
 
 
 def test_generation_forwards_defaults_and_extracts_real_forge_seed(monkeypatch):
@@ -19,7 +31,7 @@ def test_generation_forwards_defaults_and_extracts_real_forge_seed(monkeypatch):
             pass
 
         def json(self):
-            return {"images": ["image-base64"], "info": json.dumps({"seed": 42})}
+            return {"images": [VALID_PNG], "info": json.dumps({"seed": 42})}
 
     def post(url, json, timeout):
         sent.update(url=url, body=json, timeout=timeout)
@@ -30,7 +42,7 @@ def test_generation_forwards_defaults_and_extracts_real_forge_seed(monkeypatch):
     response = client.post("/forge/txt2img", json={"prompt": "a tree"})
 
     assert response.status_code == 200
-    assert response.json == {"images": ["image-base64"], "seed_used": 42}
+    assert response.json == {"images": [VALID_PNG], "seed_used": 42}
     assert sent["url"] == "http://forge-host:7860/sdapi/v1/txt2img"
     assert sent["body"]["cfg_scale"] == 8
     assert sent["body"]["seed"] == -1
@@ -72,7 +84,7 @@ def test_explicit_parameters_are_forwarded(monkeypatch):
             pass
 
         def json(self):
-            return {"images": ["image-base64"], "info": json.dumps({"seed": 123})}
+            return {"images": [VALID_PNG], "info": json.dumps({"seed": 123})}
 
     def post(url, json, timeout):
         sent.update(json)
@@ -90,9 +102,11 @@ def test_explicit_parameters_are_forwarded(monkeypatch):
 
 
 @pytest.mark.parametrize("result", [
-    {"images": ["image-base64"]},
+    {"images": [VALID_PNG]},
     {"images": [], "seed_used": 123},
-    {"images": ["image-base64"], "seed_used": -1},
+    {"images": [VALID_PNG], "seed_used": -1},
+    {"images": ["not-base64!!!"], "seed_used": 123},
+    {"images": [base64.b64encode(b"not an image").decode("ascii")], "seed_used": 123},
 ])
 def test_unusable_forge_response_is_bad_gateway(monkeypatch, result):
     class Response:

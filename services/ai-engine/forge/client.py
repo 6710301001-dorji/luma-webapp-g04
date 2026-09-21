@@ -1,8 +1,12 @@
 """Translate LUMA generation requests to Forge's txt2img HTTP API."""
 
+import base64
+import binascii
 import json
+from io import BytesIO
 
 import requests
+from PIL import Image
 
 
 class ForgeError(Exception):
@@ -23,6 +27,13 @@ def generate_image(payload, forge_base_url, timeout=120):
         raise ForgeError("Forge response has no images list")
     if not result["images"] or not isinstance(result["images"][0], str) or not result["images"][0]:
         raise ForgeError("Forge response has no image")
+    image_base64 = result["images"][0]
+    try:
+        image_bytes = base64.b64decode(image_base64, validate=True)
+        with Image.open(BytesIO(image_bytes)) as image:
+            image.verify()
+    except (binascii.Error, ValueError, OSError) as exc:
+        raise ForgeError("Forge response contains an unusable image") from exc
 
     seed = result.get("seed_used")  # The development mock provides this directly.
     if seed is None:
@@ -41,4 +52,4 @@ def generate_image(payload, forge_base_url, timeout=120):
     if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
         raise ForgeError("Forge response has an invalid seed")
 
-    return {"images": [result["images"][0]], "seed_used": seed}
+    return {"images": [image_base64], "seed_used": seed}
