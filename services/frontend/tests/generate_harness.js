@@ -1,5 +1,5 @@
-// รัน generate.js / canvas.js ตัวจริงบน DOM จำลอง + fetch ที่ควบคุมได้ แล้วพิมพ์ผลเป็น JSON บรรทัดสุดท้าย
-// เรียกจาก test_canvas_generate.py:  node canvas_generate_harness.js <scenario> <path/to/file.js>
+// รัน generate.js ตัวจริงบน DOM จำลอง + fetch ที่ควบคุมได้ แล้วพิมพ์ผลเป็น JSON บรรทัดสุดท้าย
+// เรียกจาก test_generate_page.py:  node generate_harness.js <scenario> <path/to/generate.js>
 const fs = require("fs");
 const vm = require("vm");
 const [scenario, scriptPath] = process.argv.slice(2);
@@ -29,8 +29,6 @@ function load(nodes, fetchImpl, extra = {}) {
   return alerts;
 }
 
-const reply = (ok, body) => async () => ({ ok, status: ok ? 200 : 502, json: async () => body });
-
 async function seed() {
   let sent;
   const form = el();
@@ -47,31 +45,7 @@ async function seed() {
   return { seed: sent.seed };
 }
 
-async function canvas() {
-  const nodes = {};
-  for (const id of ["canvas-upload-input", "canvas-preview-container", "canvas-preview-img", "canvas-placeholder",
-    "btn-remove-bg", "btn-extract-palette", "palette-swatches"]) nodes[id] = el();
-  nodes["palette-container"] = el({ hidden: "" });
-  let next = reply(true, { colors: ["#112233", "#445566"] });
-  class FileReader { readAsDataURL() { this.onload({ target: { result: "data:image/png;base64,AAAA" } }); } }
-  const alerts = load(nodes, (...a) => next(...a), { FileReader });
-  const upload = () => nodes["canvas-upload-input"].fire("change", { target: { files: [{}] } });
-  const palette = () => ({ swatches: nodes["palette-swatches"].children.length, hidden: "hidden" in nodes["palette-container"].attrs });
-
-  upload();
-  await nodes["btn-extract-palette"].fire("click");
-  const afterSuccess = palette();
-
-  if (scenario === "palette_fail_after_success") {
-    next = reply(false, { error: "AI engine down" });
-    await nodes["btn-extract-palette"].fire("click");
-  } else if (scenario === "upload_after_success") {
-    upload();
-  }
-  return { afterSuccess, after: palette(), alerts: alerts.length };
-}
-
 (async () => {
-  const result = scenario === "seed_zero" ? await seed() : await canvas();
+  const result = await seed();
   console.log(JSON.stringify(result));
 })();
