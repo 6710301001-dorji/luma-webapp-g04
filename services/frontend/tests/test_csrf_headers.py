@@ -1,10 +1,10 @@
 """
-test_csrf_headers.py — ทุก fetch ที่เป็น POST ต้องส่ง CSRF token (#51, รีวิว #125)
+test_csrf_headers.py — ทุก fetch ที่เปลี่ยนสถานะ (POST/PUT/PATCH/DELETE) ต้องส่ง CSRF token (#51, #58)
 ===================================================================================
 test ของ backend รันแบบ TESTING ซึ่งปิด CSRF ไว้ ถ้าวันหลังมี POST ใหม่ใน frontend ที่ลืมใส่
 `...window.csrfHeaders()` test ชุดอื่นจะไม่จับให้ แต่ใช้งานจริงจะได้ 400 — ไฟล์นี้กันไว้ตรงนั้น
 
-ตรวจจาก source ไม่ต้องใช้ node: หา fetch(...) แต่ละตัว (จบที่ `});`) ที่มี method "POST"
+ตรวจจาก source ไม่ต้องใช้ node: หา fetch(...) แต่ละตัว (จบที่ `});`) ที่มี method ที่ CSRFProtect ตรวจ
 """
 
 import re
@@ -18,7 +18,7 @@ FETCH_CALL = re.compile(r"fetch\((.*?)\}\);", re.DOTALL)
 def _post_fetches():
     for js in sorted(JS_DIR.glob("*.js")):
         for call in FETCH_CALL.findall(js.read_text(encoding="utf-8")):
-            if re.search(r"method:\s*[\"']POST[\"']", call, re.IGNORECASE):
+            if re.search(r"method:\s*[\"'](POST|PUT|PATCH|DELETE)[\"']", call, re.IGNORECASE):
                 yield js.name, call
 
 
