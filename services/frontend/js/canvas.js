@@ -242,7 +242,7 @@
           console.error("Remove bg error:", err);
           alert("ไม่สามารถลบพื้นหลังได้ในขณะนี้");
         } finally {
-          removeBgBtn.disabled = false;
+          removeBgBtn.disabled = !REMOVE_BG_READY;
           removeBgBtn.textContent = "✂️ ลบพื้นหลังอัตโนมัติ";
         }
       });

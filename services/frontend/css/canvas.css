@@ -17,14 +17,6 @@
   }
 }
 
-/* จอกว้าง: ภาพค้างอยู่ด้านบนระหว่างเลื่อนดูเครื่องมือด้านขวา (ปุ่มสกัดสีอยู่ใต้ขอบจอ 900px) */
-@media (min-width: 861px) {
-  .canvas-workarea-card {
-    position: sticky;
-    top: 1rem;
-  }
-}
-
 .canvas-workarea-card {
   background: #ffffff;
   border: 1px solid #e5e5e5;
@@ -34,6 +26,15 @@
   display: flex;
   flex-direction: column;
   align-items: center;
+}
+
+/* ต้องอยู่หลังกฎหลักของ .canvas-workarea-card — media query ไม่เพิ่ม specificity
+   จอกว้าง: ภาพค้างอยู่ด้านบนระหว่างเลื่อนดูเครื่องมือด้านขวา (ปุ่มสกัดสีอยู่ใต้ขอบจอ 900px) */
+@media (min-width: 861px) {
+  .canvas-workarea-card {
+    position: sticky;
+    top: 1rem;
+  }
 }
 
 /* พื้นหลังลายตารางหมากรุกสำหรับรองรับภาพ PNG โปร่งใส */
