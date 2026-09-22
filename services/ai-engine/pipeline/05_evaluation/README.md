@@ -95,6 +95,14 @@ measure from job submission through `done`, including polling time.
 Use a clean reference image, its degraded `before` image, and the output from
 each enhancement operation. This module measures existing results and does not
 import Flask or duplicate the enhancement algorithms.
+
+Run `python services/ai-engine/samples/generate_evidence.py` from the repository
+root to regenerate `samples/evaluation/quality_metrics_table.csv`. The table uses
+all eight methods on the same deterministic noisy image and clean reference.
+Negative changes are retained: a method that worsens this image should not be
+presented as an improvement. These synthetic fixtures demonstrate the method;
+use project photographs for the final report.
+
 ## Segmentation metrics
 
 `segmentation_metrics.py` measures binary masks for issue #67:

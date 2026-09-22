@@ -14,7 +14,8 @@ python services/ai-engine/samples/generate_evidence.py
 ```
 
 This regenerates four `input/evidence_*.png` fixtures, the twelve figures below,
-and `evidence_manifest.json`. The manifest maps each processing module to a figure.
+`evaluation/quality_metrics_table.csv`, and `evidence_manifest.json`. The manifest
+maps each processing module to a figure and links the quality table to its inputs.
 Benchmark measurements and their timestamp vary with each run; all image fixtures
 use deterministic geometry and noise (NumPy RNG seed 132). The benchmark entry
 records its measurements, machine architecture, Python/OpenCV versions, dimensions,
@@ -38,7 +39,7 @@ range; BGR images are converted to RGB only for display.
 | color_palette | [Figure](output/color_palette_before_after.png) | Four computed colors and their pixel proportions |
 | feature_vector | [Figure](output/feature_vector_before_after.png) | The computed 28-value descriptor |
 | shape_sharpness | [Figure](output/shape_sharpness_before_after.png) | Blur lowers frequency sharpness; red contour geometry is reported |
-| quality_metrics | [Figure](output/quality_metrics_before_after.png) | Reference, noisy input, median result, PSNR and SSIM |
+| quality_metrics | [Figure](output/quality_metrics_before_after.png) · [Eight-method table](evaluation/quality_metrics_table.csv) | Reference, noisy input, median result, and PSNR/SSIM before and after every enhancement method |
 | segmentation_metrics | [Figure](output/segmentation_metrics_before_after.png) | Known masks shifted 12 pixels and computed overlap scores |
 | benchmark_baseline | [Figure](output/benchmark_baseline_before_after.png) | Actual local median timing, ten trials; output difference is reported |
 
