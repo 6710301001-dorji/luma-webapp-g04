@@ -17,6 +17,14 @@
   }
 }
 
+/* จอกว้าง: ภาพค้างอยู่ด้านบนระหว่างเลื่อนดูเครื่องมือด้านขวา (ปุ่มสกัดสีอยู่ใต้ขอบจอ 900px) */
+@media (min-width: 861px) {
+  .canvas-workarea-card {
+    position: sticky;
+    top: 1rem;
+  }
+}
+
 .canvas-workarea-card {
   background: #ffffff;
   border: 1px solid #e5e5e5;
