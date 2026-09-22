@@ -33,13 +33,6 @@ def generate_image(
     Returns:
         tuple[str, int]: (relative_file_path, seed_used)
     """
-    # ผ่าน ai-engine ทางเดียวเสมอ — ai-engine (#102) คุยกับ Forge และอ่าน seed จริงจาก info ให้
-    # (ไม่ยิง Forge ตรงอีกแล้ว FORGE_AI_ENDPOINT ใน config เก่าถูกเมิน)
-    ai_url = current_app.config.get("AI_ENGINE_URL", "http://127.0.0.1:8000").rstrip("/")
-    endpoint = f"{ai_url}/forge/txt2img"
-
-    timeout = current_app.config.get("FORGE_TIMEOUT_SECONDS", 120)
-
     payload = {
         "prompt": prompt,
         "negative_prompt": negative_prompt,
@@ -50,6 +43,54 @@ def generate_image(
         "width": width,
         "height": height,
     }
+    return _call_ai_engine("/forge/txt2img", payload, seed)
+
+
+def edit_image(
+    init_image: str,
+    mask: str | None,
+    mode: str,
+    prompt: str,
+    denoising_strength: float,
+    negative_prompt: str = "",
+    steps: int = 20,
+    cfg_scale: float = 8.0,
+    sampler_name: str = "DPM++ 2M Karras",
+    seed: int = -1,
+    width: int = 512,
+    height: int = 512,
+) -> tuple[str, int]:
+    """แก้ภาพเดิมด้วย img2img 4 โหมดผ่าน ai-engine (#130, Lecture 2 หน้า 58-61)
+
+    init_image / mask เป็น base64 ล้วน (ตัด data: prefix มาแล้ว) ตามที่ ai-engine รับ
+
+    Returns:
+        tuple[str, int]: (relative_file_path, seed_used)
+    """
+    payload = {
+        "init_image": init_image,
+        "mask": mask,
+        "mode": mode,
+        "prompt": prompt,
+        "denoising_strength": denoising_strength,
+        "negative_prompt": negative_prompt,
+        "steps": steps,
+        "cfg_scale": cfg_scale,
+        "sampler_name": sampler_name,
+        "seed": seed,
+        "width": width,
+        "height": height,
+    }
+    return _call_ai_engine("/forge/img2img", payload, seed)
+
+
+def _call_ai_engine(path: str, payload: dict, seed: int) -> tuple[str, int]:
+    """POST ไป ai-engine แล้วบันทึกภาพแรกที่ได้ — txt2img และ img2img ใช้ทางเดียวกันและ error ชุดเดียวกัน"""
+    # ผ่าน ai-engine ทางเดียวเสมอ — ai-engine (#102) คุยกับ Forge และอ่าน seed จริงจาก info ให้
+    # (ไม่ยิง Forge ตรงอีกแล้ว FORGE_AI_ENDPOINT ใน config เก่าถูกเมิน)
+    ai_url = current_app.config.get("AI_ENGINE_URL", "http://127.0.0.1:8000").rstrip("/")
+    endpoint = f"{ai_url}{path}"
+    timeout = current_app.config.get("FORGE_TIMEOUT_SECONDS", 120)
 
     try:
         response = requests.post(endpoint, json=payload, timeout=timeout)
@@ -63,10 +104,11 @@ def generate_image(
 
     if response.status_code != 200:
         current_app.logger.error("AI engine ที่ %s ตอบกลับด้วยสถานะ %s", endpoint, response.status_code)
+        # ai-engine ตอบ 504 เมื่อ Forge ตอบช้าเกินกำหนด (#20) — ส่งต่อให้ผู้ใช้รู้ว่าช้า ไม่ใช่ล่ม
         raise ForgeClientError(
             f"AI engine ตอบกลับด้วยสถานะ {response.status_code} "
             f"/ AI engine returned status {response.status_code}",
-            status_code=502,
+            status_code=504 if response.status_code == 504 else 502,
         )
 
     try:

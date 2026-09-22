@@ -184,7 +184,8 @@ def _csrf_client():
 def test_post_without_csrf_token_is_rejected_as_json():
     """[กรณีทดสอบ]: POST ที่ไม่มี CSRF token ต้องได้ 400 JSON ทุก endpoint ที่เปลี่ยนสถานะ"""
     client = _csrf_client()
-    for path, body in (("/api/auth/register", _NEW_USER), ("/api/auth/logout", {}), ("/api/generate", {"prompt": "cat"})):
+    for path, body in (("/api/auth/register", _NEW_USER), ("/api/auth/logout", {}), ("/api/generate", {"prompt": "cat"}),
+                       ("/api/img2img", {"prompt": "cat", "init_image": "aGk="})):
         res = client.post(path, json=body)
         assert res.status_code == 400, f"{path} ควรได้ 400 แต่ได้ {res.status_code}"
         assert "error" in res.get_json(), path

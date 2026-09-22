@@ -1,0 +1,75 @@
+/* ==========================================================================
+   LUMA — img2img (Issue #33)
+   ใช้ฟอร์ม/การ์ดจาก generate.css ส่วนนี้เฉพาะพื้นที่วาด
+   ========================================================================== */
+
+.i2i-stage {
+  position: relative;
+  width: 100%;
+  min-height: 320px;
+  border: 2px dashed #ccc;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: #fafafa;
+}
+
+/* กรอบขนาดเท่าภาพที่แสดงจริง — stage จัดกึ่งกลาง ส่วน mask ทับ "กรอบนี้" ไม่ใช่ทับ stage
+   เดิม mask อ้าง stage (min-height 320px) ภาพกว้างจึงถูกจัดกลางแต่ mask ติดขอบบน (รีวิว #143) */
+.i2i-canvas-wrap {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  line-height: 0;
+}
+
+.i2i-layer {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 70vh; /* ภาพสูงไม่ล้นจอจนต้องเลื่อนหน้าระหว่างวาด */
+  touch-action: none; /* ลากนิ้ววาดโดยไม่เลื่อนหน้า */
+}
+
+.i2i-layer--mask {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  opacity: 0.45; /* เห็นบริเวณที่ระบายเป็นสีแดงทับภาพ — ตอนส่งแปลงเป็นขาว/ดำ */
+}
+
+.i2i-stage.is-drawable .i2i-layer {
+  cursor: crosshair;
+}
+
+.i2i-brush {
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  padding: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.i2i-clear {
+  background: none;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  padding: 0.3rem 0.8rem;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.i2i-result {
+  margin-top: 1.25rem;
+}
+
+.i2i-result h3 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1rem;
+}

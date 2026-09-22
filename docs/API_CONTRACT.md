@@ -142,6 +142,36 @@ Query params ที่ต้องรองรับ (สเปก Asset Hub —
 ```
 ลบทั้งไฟล์บนดิสก์และแถวใน DB · ไฟล์หายไปแล้วแต่แถวยังอยู่ → ไม่ fail แค่ log warning
 
+### `POST /api/img2img` — แก้ภาพเดิมด้วย AI (Issue #33, Lecture 2 หน้า 58-61)
+
+> **ร่างเสนอ (คนที่ 1)** — รอทีมยืนยันใน PR ที่เพิ่มหัวข้อนี้
+
+```jsonc
+// request — ต้อง login · ต้องมี CSRF token เหมือน POST อื่น
+{
+  "init_image": "data:image/png;base64,....",   // Data URL หรือ base64 ล้วน · สูงสุด 10 MB
+  "prompt": "a watercolor fox",
+  "mode": "text",                               // text | sketch | inpaint | inpaint-sketch (default text)
+  "mask": null,                                 // inpaint* เท่านั้น: ภาพขาว-ดำขนาดเท่า init_image, ขาว = บริเวณที่วาดใหม่
+  "denoising_strength": 0.7,                    // 0-1 · ต่ำ = ใกล้ภาพเดิม
+  "negative_prompt": "", "steps": 20, "cfg_scale": 8, "sampler_name": "DPM++ 2M Karras", "seed": -1,
+  "width": 768, "height": 512                   // ไม่ส่ง = ขนาด 512/768/1024 ที่ใกล้ภาพจริงที่สุด
+}
+// response — รูปแบบเดียวกับ /api/generate · ภาพที่ได้เป็น asset ใหม่ ภาพต้นฉบับไม่ถูกแก้
+{ "status": "success", "asset_id": 43, "image_url": "/api/assets/43/image" }
+```
+
+| กรณี | สถานะ |
+|---|---|
+| ไม่ login | 401 |
+| prompt ว่าง · mode ไม่รู้จัก · ภาพ/mask ไม่ใช่ base64 ของภาพจริง · mask ขนาดไม่เท่าภาพ · strength นอก 0-1 · ค่าตัวเลขเป็น true/false หรือนอกช่วงเดียวกับ /api/generate | 400 |
+| โหมด inpaint* ไม่ส่ง mask · โหมด text/sketch ส่ง mask มา | 400 |
+| ภาพใหญ่เกิน 10 MB | 413 |
+| ai-engine / Forge ช้าเกินกำหนด | 504 |
+| ai-engine ต่อไม่ได้หรือตอบผิดรูป | 502 |
+
+โหมด `sketch` / `inpaint-sketch`: frontend วาดเส้นลงบนภาพก่อนแล้วส่งภาพที่วาดแล้วเป็น `init_image` (ai-engine ส่ง `mode` ไม่ต่อให้ Forge — ดู `POST /forge/img2img`)
+
 ### `POST /api/pipeline/palette/extract` — Smart Canvas (Issue #101, #60)
 
 ```json

@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LUMA — แก้ภาพด้วย AI (img2img)</title>
+  <link rel="stylesheet" href="../css/main.css" />
+  <link rel="stylesheet" href="../css/generate.css" />
+  <link rel="stylesheet" href="../css/img2img.css" />
+</head>
+<body data-page="img2img">
+  <header class="app-header">
+    <div id="app-nav-slot"></div>
+  </header>
+
+  <main class="app-main">
+    <h1>🖌️ แก้ภาพด้วย AI (img2img)</h1>
+    <p>ใช้ภาพเดิมเป็นต้นแบบ แล้วให้ AI วาดใหม่ตาม prompt — 4 โหมดตาม Lecture 2 หน้า 58–61</p>
+
+    <div class="generate-layout">
+      <section class="generate-form-card">
+        <div class="generate-error" id="i2i-error" hidden role="alert"></div>
+
+        <form id="i2i-form" action="javascript:void(0);" novalidate>
+          <div class="form-group">
+            <label for="i2i-upload">ภาพต้นฉบับ *</label>
+            <input class="form-control" type="file" id="i2i-upload" accept="image/*" />
+            <span class="form-hint">ภาพที่ด้านยาวเกิน 1024 px จะถูกย่อลงก่อนส่ง</span>
+          </div>
+
+          <div class="form-group">
+            <label for="i2i-mode">โหมด</label>
+            <select class="form-control" id="i2i-mode" name="mode">
+              <option value="text" selected>Text — ภาพต้นแบบ + prompt</option>
+              <option value="sketch">Sketch — วาดเส้นสีลงบนภาพก่อน</option>
+              <option value="inpaint">Inpaint — ระบายเฉพาะส่วนที่จะแก้</option>
+              <option value="inpaint-sketch">Inpaint-Sketch — วาดเส้นสีเฉพาะส่วนที่จะแก้</option>
+            </select>
+            <span class="form-hint" id="i2i-mode-hint">AI วาดใหม่ทั้งภาพโดยคงโครงเดิมตาม denoising strength</span>
+          </div>
+
+          <div class="i2i-brush" id="i2i-brush" hidden>
+            <div class="params-grid">
+              <div class="form-group">
+                <label for="i2i-brush-size">ขนาดแปรง <span id="i2i-brush-size-value">24</span> px</label>
+                <input type="range" id="i2i-brush-size" min="4" max="96" step="2" value="24" />
+              </div>
+              <div class="form-group" id="i2i-color-group">
+                <label for="i2i-brush-color">สีแปรง</label>
+                <input type="color" id="i2i-brush-color" value="#ff3b30" />
+              </div>
+            </div>
+            <button type="button" class="i2i-clear" id="i2i-clear">↺ ล้างสิ่งที่วาด</button>
+          </div>
+
+          <div class="form-group">
+            <label for="i2i-prompt">Prompt *</label>
+            <textarea class="form-control" id="i2i-prompt" name="prompt" placeholder="เช่น watercolor painting, soft light"></textarea>
+          </div>
+
+          <div class="form-group">
+            <label for="i2i-negative">Negative Prompt</label>
+            <textarea class="form-control" id="i2i-negative" name="negative_prompt" placeholder="เช่น blurry, low quality"></textarea>
+          </div>
+
+          <div class="form-group">
+            <label for="i2i-strength">Denoising strength <span id="i2i-strength-value">0.70</span></label>
+            <input type="range" id="i2i-strength" min="0" max="1" step="0.05" value="0.7" />
+            <span class="form-hint">ต่ำ = ใกล้ภาพเดิม · สูง = เปลี่ยนมาก</span>
+          </div>
+
+          <div class="params-grid">
+            <div class="form-group">
+              <label for="i2i-steps">Steps</label>
+              <input class="form-control" type="number" id="i2i-steps" value="20" min="1" max="50" />
+            </div>
+            <div class="form-group">
+              <label for="i2i-cfg">CFG Scale</label>
+              <input class="form-control" type="number" id="i2i-cfg" value="8" min="1" max="30" step="0.5" />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="i2i-seed">Seed</label>
+            <input class="form-control" type="number" id="i2i-seed" value="-1" />
+            <span class="form-hint">-1 = สุ่ม</span>
+          </div>
+
+          <button type="submit" class="btn-generate" id="i2i-submit">✨ แก้ภาพด้วย AI</button>
+        </form>
+      </section>
+
+      <section class="generate-preview-card">
+        <div class="i2i-stage" id="i2i-stage">
+          <p class="preview-placeholder" id="i2i-placeholder">เลือกภาพต้นฉบับเพื่อเริ่ม</p>
+          <!-- wrapper ขนาดเท่าภาพที่แสดง — ชั้น mask ต้องทับภาพพอดี ไม่ใช่ทับกล่อง stage (รีวิว #143) -->
+          <div class="i2i-canvas-wrap">
+            <canvas class="i2i-layer" id="i2i-base" hidden></canvas>
+            <canvas class="i2i-layer i2i-layer--mask" id="i2i-mask" hidden></canvas>
+          </div>
+        </div>
+
+        <div class="i2i-result" id="i2i-result" hidden>
+          <h3>ผลลัพธ์</h3>
+          <img class="preview-image" id="i2i-result-img" alt="ภาพที่ AI แก้แล้ว" />
+          <p class="preview-meta">บันทึกในคลังผลงานแล้ว — <a href="gallery.html">เปิดคลังผลงาน</a></p>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <form id="logout-form" action="#" method="post" hidden></form>
+
+  <script src="../js/csrf.js"></script>
+  <script src="../js/layout.js"></script>
+  <script src="../js/img2img.js"></script>
+</body>
+</html>
