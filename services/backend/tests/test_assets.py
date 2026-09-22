@@ -347,6 +347,41 @@ def test_delete_when_file_already_gone_still_removes_row(client, app, caplog):
     assert any("already-gone.png" in r.getMessage() for r in caplog.records)
 
 
+def test_failed_db_commit_keeps_the_image_file(client, app):
+    """[กรณีทดสอบ #58 รีวิว #140]: ลบแถวใน DB ไม่สำเร็จ (เช่น database is locked) -> ไฟล์ต้องยังอยู่
+
+    เดิมลบไฟล์ก่อน commit — commit ล้มแล้ว rollback แถวกลับมา แต่ไฟล์หายถาวร
+    ภาพที่ยังอยู่ในแกลเลอรีจึงเปิดไม่ได้อีกเลย
+    """
+    from unittest.mock import patch
+    from sqlalchemy.exc import OperationalError
+
+    uid = _login(client, "del-locked@luma.ai", "DelLocked")  # no-secret-check
+    rel_path, full_path = _stored_file(app, "locked")
+    try:
+        asset_id = _add_asset(app, rel_path, uid)
+        with patch.object(db.session, "commit",
+                          side_effect=OperationalError("DELETE", {}, Exception("database is locked"))):
+            res = client.delete(f"/api/assets/{asset_id}")
+
+        assert res.status_code == 500 and "error" in res.get_json()
+        assert os.path.exists(full_path), "ไฟล์ต้องถูกคืนที่เดิมเมื่อ commit ล้ม"
+        leftovers = [f for f in os.listdir(os.path.dirname(full_path)) if f.startswith(os.path.basename(full_path) + ".")]
+        assert leftovers == [], f"ต้องไม่มีไฟล์ชั่วคราวค้าง: {leftovers}"
+        with app.app_context():
+            assert db.session.get(Asset, asset_id) is not None
+        image = client.get(f"/api/assets/{asset_id}/image")
+        assert image.status_code == 200, "ภาพต้องยังเปิดได้"
+        image.close()
+
+        # ลองลบใหม่เมื่อ DB กลับมาปกติ -> สำเร็จ
+        assert client.delete(f"/api/assets/{asset_id}").status_code == 200
+        assert not os.path.exists(full_path)
+    finally:
+        if os.path.exists(full_path):
+            os.remove(full_path)
+
+
 def test_delete_never_touches_files_outside_uploads(client, app):
     """[กรณีทดสอบ #58]: file_path ในแถวชี้ออกนอก uploads/ (เช่น ../) -> ต้องไม่ลบไฟล์นั้น
 
