@@ -7,7 +7,8 @@ import os
 
 from flask import Blueprint, current_app, jsonify, request, send_file, session
 from app.models import db, Asset
-from app.services.forge_client import generate_image, ForgeClientError
+from app.services.forge_client import edit_image, generate_image, ForgeClientError
+from app.services.image_input import ALLOWED_SIZES, ImageInputError, decode_image, nearest_size
 from app.services.ai_engine_client import extract_color_palette, PipelineClientError
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
@@ -17,6 +18,67 @@ api_bp = Blueprint("api", __name__, url_prefix="/api")
 def ping():
     """GET /api/ping — ตรวจสอบการทำงานของ Blueprint api (Issue #47)"""
     return jsonify({"status": "ok", "blueprint": "api"}), 200
+
+
+def _parse_generation_params(data: dict, default_width: int = 512, default_height: int = 512):
+    """ตรวจพารามิเตอร์ที่ /api/generate และ /api/img2img ใช้ร่วมกัน -> (params, None) หรือ (None, response)
+
+    ขอบเขตต้องตรงกับที่ ai-engine (#102) และ API_CONTRACT บังคับ
+    ไม่งั้นค่าที่ผ่านตรงนี้จะไปโดน ai-engine ปฏิเสธ ผู้ใช้เห็น 502 แทน 400
+    """
+    def bad(message):
+        return None, (jsonify({"error": message}), 400)
+
+    negative_prompt = data.get("negative_prompt", "")
+    if not isinstance(negative_prompt, str):
+        return bad("negative_prompt ต้องเป็นข้อความ / negative_prompt must be a string")
+
+    # isinstance(True, int) เป็น True และ int(True) = 1 — ต้องกัน bool ก่อนแปลงเป็นตัวเลข
+    # ไม่งั้น {"steps": true} ผ่านไปถึง ai-engine และ {"seed": false} กลายเป็น seed 0 (API_CONTRACT.md)
+    numeric_fields = ("steps", "cfg_scale", "seed", "width", "height")
+    if any(isinstance(data.get(name), bool) for name in numeric_fields):
+        return bad("steps, cfg_scale, seed, width, height ต้องเป็นตัวเลข ไม่ใช่ true/false")
+
+    try:
+        steps = int(data.get("steps", 20))
+    except (ValueError, TypeError):
+        return bad("steps ต้องเป็นตัวเลขจำนวนเต็ม / steps must be an integer")
+    if steps < 1 or steps > 50:
+        return bad("steps ต้องอยู่ระหว่าง 1-50")
+
+    try:
+        cfg_scale = float(data.get("cfg_scale", 8.0))
+    except (ValueError, TypeError):
+        return bad("cfg_scale ต้องเป็นตัวเลข / cfg_scale must be a number")
+    if cfg_scale < 1.0 or cfg_scale > 30.0:
+        return bad("cfg_scale ต้องอยู่ระหว่าง 1.0-30.0")
+
+    sampler_name = data.get("sampler_name", "DPM++ 2M Karras")
+    if not isinstance(sampler_name, str):
+        return bad("sampler_name ต้องเป็นข้อความ / sampler_name must be a string")
+
+    try:
+        seed = int(data.get("seed", -1))
+    except (ValueError, TypeError):
+        return bad("seed ต้องเป็นตัวเลขจำนวนเต็ม / seed must be an integer")
+
+    try:
+        width = int(data.get("width", default_width))
+        height = int(data.get("height", default_height))
+    except (ValueError, TypeError):
+        return bad("width และ height ต้องเป็นจำนวนเต็ม")
+    if width not in ALLOWED_SIZES or height not in ALLOWED_SIZES:
+        return bad("width/height ต้องเป็น 512, 768 หรือ 1024")
+
+    return {
+        "negative_prompt": negative_prompt.strip(),
+        "steps": steps,
+        "cfg_scale": cfg_scale,
+        "sampler_name": sampler_name,
+        "seed": seed,
+        "width": width,
+        "height": height,
+    }, None
 
 
 @api_bp.route("/generate", methods=["POST"])
@@ -38,61 +100,12 @@ def handle_generate():
         return jsonify({"error": "กรุณาระบุคำบรรยายภาพ (prompt) / prompt is required"}), 400
     prompt = prompt.strip()
 
-    negative_prompt = data.get("negative_prompt", "")
-    if not isinstance(negative_prompt, str):
-        return jsonify({"error": "negative_prompt ต้องเป็นข้อความ / negative_prompt must be a string"}), 400
-    negative_prompt = negative_prompt.strip()
-
-    # isinstance(True, int) เป็น True และ int(True) = 1 — ต้องกัน bool ก่อนแปลงเป็นตัวเลข
-    # ไม่งั้น {"steps": true} ผ่านไปถึง ai-engine และ {"seed": false} กลายเป็น seed 0 (API_CONTRACT.md)
-    numeric_fields = ("steps", "cfg_scale", "seed", "width", "height")
-    if any(isinstance(data.get(name), bool) for name in numeric_fields):
-        return jsonify({"error": "steps, cfg_scale, seed, width, height ต้องเป็นตัวเลข ไม่ใช่ true/false"}), 400
-
-    # ขอบเขตต้องตรงกับที่ ai-engine (#102) และ API_CONTRACT บังคับ
-    # ไม่งั้นค่าที่ผ่านตรงนี้จะไปโดน ai-engine ปฏิเสธ ผู้ใช้เห็น 502 แทน 400
-    try:
-        steps = int(data.get("steps", 20))
-        if steps < 1 or steps > 50:
-            return jsonify({"error": "steps ต้องอยู่ระหว่าง 1-50"}), 400
-    except (ValueError, TypeError):
-        return jsonify({"error": "steps ต้องเป็นตัวเลขจำนวนเต็ม / steps must be an integer"}), 400
+    params, error = _parse_generation_params(data)
+    if error:
+        return error
 
     try:
-        cfg_scale = float(data.get("cfg_scale", 8.0))
-        if cfg_scale < 1.0 or cfg_scale > 30.0:
-            return jsonify({"error": "cfg_scale ต้องอยู่ระหว่าง 1.0-30.0"}), 400
-    except (ValueError, TypeError):
-        return jsonify({"error": "cfg_scale ต้องเป็นตัวเลข / cfg_scale must be a number"}), 400
-
-    sampler_name = data.get("sampler_name", "DPM++ 2M Karras")
-    if not isinstance(sampler_name, str):
-        return jsonify({"error": "sampler_name ต้องเป็นข้อความ / sampler_name must be a string"}), 400
-
-    try:
-        seed = int(data.get("seed", -1))
-    except (ValueError, TypeError):
-        return jsonify({"error": "seed ต้องเป็นตัวเลขจำนวนเต็ม / seed must be an integer"}), 400
-
-    try:
-        width = int(data.get("width", 512))
-        height = int(data.get("height", 512))
-    except (ValueError, TypeError):
-        return jsonify({"error": "width และ height ต้องเป็นจำนวนเต็ม"}), 400
-    if width not in (512, 768, 1024) or height not in (512, 768, 1024):
-        return jsonify({"error": "width/height ต้องเป็น 512, 768 หรือ 1024"}), 400
-
-    try:
-        relative_path, seed_used = generate_image(
-            prompt=prompt,
-            negative_prompt=negative_prompt,
-            steps=steps,
-            cfg_scale=cfg_scale,
-            sampler_name=sampler_name,
-            seed=seed,
-            width=width,
-            height=height,
-        )
+        relative_path, seed_used = generate_image(prompt=prompt, **params)
     except ForgeClientError as e:
         return jsonify({"error": e.message}), e.status_code
     except Exception as e:
@@ -105,6 +118,87 @@ def handle_generate():
             file_path=relative_path,
             user_id=user_id,
         )
+        db.session.add(new_asset)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"ไม่สามารถบันทึกข้อมูล Asset: {e}", exc_info=True)
+        return jsonify({"error": "ไม่สามารถบันทึกข้อมูลลงฐานข้อมูลได้ / Database error"}), 500
+
+    return jsonify({
+        "status": "success",
+        "asset_id": new_asset.id,
+        "image_url": f"/api/assets/{new_asset.id}/image",
+    }), 200
+
+
+IMG2IMG_MODES = ("text", "sketch", "inpaint", "inpaint-sketch")
+
+
+@api_bp.route("/img2img", methods=["POST"])
+def handle_img2img():
+    """POST /api/img2img — แก้ภาพเดิมด้วย AI 4 โหมด (#33, Lecture 2 หน้า 58-61)
+
+    ต้อง login เหมือน /api/generate · ผลลัพธ์เป็น asset ใหม่ของผู้ใช้ (ภาพต้นฉบับไม่ถูกแก้)
+    ตรวจภาพ/mask/โหมดเองก่อนส่ง ai-engine เพื่อให้ผู้ใช้ได้ 400 ที่อ่านรู้เรื่อง ไม่ใช่ 502
+    """
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "ยังไม่ได้เข้าสู่ระบบ / Unauthorized"}), 401
+
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or not data:
+        return jsonify({"error": "คำขอต้องเป็น JSON object / Request must be a JSON object"}), 400
+
+    prompt = data.get("prompt")
+    if not isinstance(prompt, str) or not prompt.strip():
+        return jsonify({"error": "กรุณาระบุคำบรรยายภาพ (prompt) / prompt is required"}), 400
+    prompt = prompt.strip()
+
+    mode = data.get("mode", "text")
+    if not isinstance(mode, str) or mode not in IMG2IMG_MODES:
+        return jsonify({"error": "mode ต้องเป็น text, sketch, inpaint หรือ inpaint-sketch"}), 400
+
+    # mask ใช้เฉพาะโหมด inpaint — โหมดอื่นถ้าส่งมา Forge จะทำ inpaint ทั้งที่ผู้ใช้ไม่ได้เลือก (รีวิว #130)
+    mask_value = data.get("mask")
+    if mode.startswith("inpaint") and mask_value is None:
+        return jsonify({"error": "โหมด inpaint ต้องระบายบริเวณที่จะแก้ (mask) / mask is required"}), 400
+    if not mode.startswith("inpaint") and mask_value is not None:
+        return jsonify({"error": "mask ใช้ได้เฉพาะโหมด inpaint / mask is only for inpaint modes"}), 400
+
+    strength = data.get("denoising_strength", 0.7)
+    if isinstance(strength, bool) or not isinstance(strength, (int, float)) or not 0 <= strength <= 1:
+        return jsonify({"error": "denoising_strength ต้องเป็นตัวเลข 0-1"}), 400
+
+    max_bytes = current_app.config.get("IMG2IMG_MAX_BYTES", 10 * 1024 * 1024)
+    try:
+        init_image, (image_width, image_height) = decode_image(data.get("init_image"), "init_image", max_bytes)
+        mask = None
+        if mask_value is not None:
+            mask, mask_size = decode_image(mask_value, "mask", max_bytes)
+            if mask_size != (image_width, image_height):
+                return jsonify({"error": "mask ต้องขนาดเท่าภาพต้นฉบับ / mask must match init_image size"}), 400
+    except ImageInputError as e:
+        return jsonify({"error": e.message}), e.status_code
+
+    # ไม่ระบุขนาด -> ใช้ขนาดที่ Forge รับซึ่งใกล้ภาพจริงที่สุด แทน 512x512 ที่ทำสัดส่วนเพี้ยน
+    params, error = _parse_generation_params(
+        data, default_width=nearest_size(image_width), default_height=nearest_size(image_height))
+    if error:
+        return error
+
+    try:
+        relative_path, seed_used = edit_image(
+            init_image=init_image, mask=mask, mode=mode, prompt=prompt,
+            denoising_strength=float(strength), **params)
+    except ForgeClientError as e:
+        return jsonify({"error": e.message}), e.status_code
+    except Exception as e:
+        current_app.logger.error(f"เกิดข้อผิดพลาดในการแก้ภาพ: {e}", exc_info=True)
+        return jsonify({"error": "เกิดข้อผิดพลาดในการติดต่อ AI Engine / Internal Server Error"}), 500
+
+    try:
+        new_asset = Asset(prompt=prompt, file_path=relative_path, user_id=user_id)
         db.session.add(new_asset)
         db.session.commit()
     except Exception as e:
