@@ -6,6 +6,8 @@ Endpoints สำหรับระบบสมาชิก Authentication พร
 import time
 from collections import defaultdict
 from flask import Blueprint, jsonify, request, session, current_app
+from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.models import User, db
@@ -27,6 +29,14 @@ _login_failed_attempts: dict[str, list[float]] = defaultdict(list)
 # ข้อความ error เดียวกันทั้งสองกรณี (ไม่มี user / รหัสผิด) กันคนเดา
 # ว่าอีเมลไหนสมัครไว้แล้วจากข้อความ error ที่ต่างกัน
 _INVALID_CREDENTIALS = "อีเมลหรือรหัสผ่านไม่ถูกต้อง / Invalid credentials"
+
+# สมัครซ้ำ: ข้อความเดียวไม่ว่าจะซ้ำที่อีเมลหรือชื่อ และตอบ 400 ตาม docs/API_CONTRACT.md (#49)
+_ALREADY_TAKEN = "อีเมลหรือชื่อนี้ถูกใช้แล้ว / Email or displayName already taken"
+
+
+def _invalid(field: str, message: str):
+    """400 ที่บอกว่าฟิลด์ไหนผิด — `errors` ตาม contract ส่วน `error` ให้ register.js ที่อ่านอยู่แล้ว"""
+    return jsonify({"error": message, "errors": {field: message}}), 400
 
 
 def check_rate_limit(key: str, max_attempts: int = 5, window_seconds: int = 60) -> bool:
@@ -71,17 +81,18 @@ def register():
     display_name = display_name.strip()
 
     if not email or "@" not in email:
-        return jsonify({"error": "กรุณาระบุอีเมลที่ถูกต้อง / Valid email required"}), 400
+        return _invalid("email", "กรุณาระบุอีเมลที่ถูกต้อง / Valid email required")
     if not display_name:
-        return jsonify({"error": "กรุณาระบุชื่อแสดงผล / displayName required"}), 400
+        return _invalid("displayName", "กรุณาระบุชื่อแสดงผล / displayName required")
     if not password or len(password) < 8:
-        return jsonify({"error": "รหัสผ่านต้องมีความยาวอย่างน้อย 8 ตัวอักษร / Password must be at least 8 chars"}), 400
+        return _invalid("password", "รหัสผ่านต้องมีความยาวอย่างน้อย 8 ตัวอักษร / Password must be at least 8 chars")
 
+    # ชื่อเทียบแบบไม่สนตัวพิมพ์เหมือนอีเมล ("Aaa" กับ "aaa" คือคนเดียวกัน) แต่เก็บตามที่ผู้ใช้พิมพ์
     existing = User.query.filter(
-        (User.email == email) | (User.username == display_name)
+        (User.email == email) | (func.lower(User.username) == display_name.lower())
     ).first()
     if existing is not None:
-        return jsonify({"error": "อีเมลหรือชื่อนี้ถูกใช้แล้ว / Email or displayName already taken"}), 409
+        return jsonify({"error": _ALREADY_TAKEN}), 400
 
     user = User(
         username=display_name,
@@ -89,7 +100,12 @@ def register():
         password_hash=generate_password_hash(password),
     )
     db.session.add(user)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except IntegrityError:
+        # สองคนสมัครพร้อมกันผ่านด่านเช็คข้างบนไปทั้งคู่ -> UNIQUE ในฐานปฏิเสธคนที่สอง
+        db.session.rollback()
+        return jsonify({"error": _ALREADY_TAKEN}), 400
 
     return jsonify({
         "status": "success",
