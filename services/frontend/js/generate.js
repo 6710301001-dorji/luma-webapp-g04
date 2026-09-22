@@ -1,14 +1,21 @@
 /**
  * LUMA — Generate Image Logic
  * -------------------------------------------------------------------------
- * จัดการฟอร์มสร้างภาพจาก Prompt ส่งคำขอไปยัง POST /api/generate
- * และแสดงผลลัพธ์ภาพที่ได้บนหน้าเว็บ
+ * จัดการฟอร์มสร้างภาพจาก Prompt ส่งคำขอไปยัง POST /api/generate (เข้าคิว #21)
+ * แล้วถามสถานะที่ GET /api/jobs/<id> จนเสร็จ จึงแสดงผลลัพธ์ภาพบนหน้าเว็บ
  *
  * อ้างอิง: Issue #57, docs/API_CONTRACT.md
  */
 
 (() => {
   const API_BASE = window.LUMA_CONFIG ? window.LUMA_CONFIG.apiBase : "";
+  const POLL_MS = 1500;
+  // เกินนี้แล้วยังไม่เสร็จ -> บอกผู้ใช้ งานยังอยู่ในคิว ภาพจะขึ้นในคลังผลงานเมื่อเสร็จ
+  const MAX_WAIT_MS = 10 * 60 * 1000;
+  const STATUS_TEXT = {
+    pending: "อยู่ในคิว รอคิวก่อนหน้าเสร็จ…",
+    running: "AI กำลังสร้างภาพ…",
+  };
 
   function initGeneratePage() {
     const form = document.getElementById("generate-form");
@@ -78,11 +85,13 @@
           body: JSON.stringify(payload),
         });
 
-        const data = await res.json();
+        const queued = await res.json().catch(() => ({}));
 
-        if (!res.ok) {
-          throw new Error(data.error || `สร้างภาพไม่สำเร็จ (HTTP ${res.status})`);
+        if (!res.ok || !queued.job_id) {
+          throw new Error(queued.error || `สร้างภาพไม่สำเร็จ (HTTP ${res.status})`);
         }
+
+        const data = await waitForJob(queued.job_id);
 
         // แสดงผลภาพที่สร้างสำเร็จ
         const imageUrl = data.image_url.startsWith("http")
@@ -109,6 +118,31 @@
       return false;
     }
 
+    // ถามสถานะงานจนเสร็จ — done คืนข้อมูลงาน, failed โยน error ที่ backend บอกเหตุผลไว้
+    async function waitForJob(jobId) {
+      const started = Date.now();
+      for (;;) {
+        const res = await fetch(`${API_BASE}/api/jobs/${jobId}`);
+        const job = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(job.error || `ตรวจสถานะงานไม่สำเร็จ (HTTP ${res.status})`);
+        }
+        if (job.status === "done") return job;
+        if (job.status === "failed") {
+          throw new Error(job.error || "สร้างภาพไม่สำเร็จ");
+        }
+        setStatus(STATUS_TEXT[job.status] || "กำลังประมวลผล…");
+        if (Date.now() - started > MAX_WAIT_MS) {
+          throw new Error("รอนานเกินไป งานยังอยู่ในคิว — ภาพจะขึ้นในคลังผลงานเมื่อสร้างเสร็จ");
+        }
+        await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+      }
+    }
+
+    function setStatus(text) {
+      if (spinner) spinner.textContent = text;
+    }
+
     form.addEventListener("submit", handleGenerateSubmit);
 
     function showError(message) {
@@ -128,6 +162,7 @@
       }
       if (spinner) {
         if (isLoading) {
+          spinner.textContent = "กำลังส่งงานเข้าคิว…";
           spinner.removeAttribute("hidden");
         } else {
           spinner.setAttribute("hidden", "");
