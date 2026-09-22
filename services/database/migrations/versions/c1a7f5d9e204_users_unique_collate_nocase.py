@@ -13,6 +13,23 @@ Create Date: 2026-09-21 13:20:00.000000
     การประกาศ COLLATE NOCASE ที่ตัวคอลัมน์ทำให้ทั้ง UNIQUE index และการเทียบ
     ด้วย = ใช้การเทียบแบบไม่สนตัวพิมพ์ทั้งคู่ (ทดลองยืนยันกับ SQLite แล้ว)
 
+ขอบเขต: NOCASE ของ SQLite ครอบคลุมเฉพาะ ASCII A-Z (#150)
+    ประโยคข้างบนมาจากการทดลองด้วย 'Boss' / 'boss' ซึ่งเป็น ASCII ล้วน จึงยืนยันได้
+    แค่ช่วงนั้น NOCASE ที่มากับ SQLite พับตัวพิมพ์ให้เฉพาะ A-Z เท่านั้น และ lower()
+    ของ SQLite ก็เหมือนกัน วัดกับ SQLite 3.42.0 ได้ตามนี้
+
+        'Boss'  = 'boss'  COLLATE NOCASE  ->  จริง
+        'JOSÉ'  = 'josé'  COLLATE NOCASE  ->  เท็จ
+        'ÄPFEL' = 'äpfel' COLLATE NOCASE  ->  เท็จ
+        'ИВАН'  = 'иван'  COLLATE NOCASE  ->  เท็จ
+
+    แปลว่าชื่อที่ต่างกันแค่ตัวพิมพ์นอก ASCII ยังสมัครเป็นสองบัญชีได้ และ pre-check ที่
+    auth.py ก็ไม่ช่วย เพราะเทียบ lower() ของ SQLite กับ .lower() ของ Python ซึ่งใช้
+    กฎคนละชุด (Python รู้จัก Unicode ทั้งหมด)
+
+    ยังไม่แก้ในไฟล์นี้ เพราะทีมยังไม่ได้ตกลงว่า username ต้องกันซ้ำเฉพาะ ASCII หรือ
+    แบบ Unicode — อยู่ใน #150 เขียนไว้ตรงนี้เพื่อไม่ให้คนอ่านเข้าใจว่าครอบคลุมทุกภาษา
+
 PostgreSQL ไม่มี COLLATE NOCASE
     ตอนย้ายฝั่งนั้นให้ใช้ CREATE UNIQUE INDEX ... ON users (lower(email)) หรือ CITEXT
 """
