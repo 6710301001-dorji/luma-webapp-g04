@@ -7,6 +7,8 @@
 
 (() => {
   const API_BASE = window.LUMA_CONFIG ? window.LUMA_CONFIG.apiBase : "";
+  // backend ยังไม่มี /api/pipeline/segmentation/remove_bg (#61, #101) — เปิดเป็น true เมื่อมีแล้ว
+  const REMOVE_BG_READY = false;
 
   function initCanvasStudio() {
     const uploadInput = document.getElementById("canvas-upload-input");
@@ -59,7 +61,7 @@
       previewContainer.classList.add("has-image");
       resetLayout();
 
-      if (removeBgBtn) removeBgBtn.disabled = false;
+      if (removeBgBtn) removeBgBtn.disabled = !REMOVE_BG_READY;
       if (extractPaletteBtn) extractPaletteBtn.disabled = false;
       if (scaleInput) scaleInput.disabled = false;
       if (resetLayoutBtn) resetLayoutBtn.disabled = false;
@@ -240,7 +242,7 @@
           console.error("Remove bg error:", err);
           alert("ไม่สามารถลบพื้นหลังได้ในขณะนี้");
         } finally {
-          removeBgBtn.disabled = false;
+          removeBgBtn.disabled = !REMOVE_BG_READY;
           removeBgBtn.textContent = "✂️ ลบพื้นหลังอัตโนมัติ";
         }
       });

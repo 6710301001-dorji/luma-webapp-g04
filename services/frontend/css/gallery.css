@@ -105,6 +105,25 @@
   padding-top: 0.5rem;
 }
 
+.asset-card__delete {
+  background: none;
+  border: 1px solid #e0b4b4;
+  border-radius: 6px;
+  color: #b3261e;
+  font-size: 0.75rem;
+  padding: 0.2rem 0.6rem;
+  cursor: pointer;
+}
+
+.asset-card__delete:hover:not(:disabled) {
+  background: #fdecea;
+}
+
+.asset-card__delete:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
 /* Pagination */
 .gallery-pagination {
   display: flex;

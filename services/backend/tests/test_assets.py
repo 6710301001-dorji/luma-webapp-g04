@@ -269,6 +269,138 @@ def test_get_asset_image_of_other_user_returns_404(client, app):
         os.remove(full_path)
 
 
+def _stored_file(app, name="del"):
+    """สร้างไฟล์ภาพจริงใต้ instance/uploads/generated แล้วคืน (relative, full) path"""
+    import uuid
+
+    rel_path = f"uploads/generated/test-{name}-{uuid.uuid4().hex}.png"
+    full_path = os.path.join(app.instance_path, rel_path)
+    os.makedirs(os.path.dirname(full_path), exist_ok=True)
+    with open(full_path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n")
+    return rel_path, full_path
+
+
+def _add_asset(app, file_path, user_id):
+    with app.app_context():
+        asset = Asset(prompt="to delete", file_path=file_path, user_id=user_id)
+        db.session.add(asset)
+        db.session.commit()
+        return asset.id
+
+
+def test_delete_asset_requires_login(client, app):
+    """[กรณีทดสอบ #58]: ยังไม่ login ลบไม่ได้ -> 401"""
+    asset_id = _add_asset(app, "x.png", None)
+    assert client.delete(f"/api/assets/{asset_id}").status_code == 401
+
+
+def test_owner_deletes_row_and_file(client, app):
+    """[กรณีทดสอบ #58]: เจ้าของลบ -> ตอบตาม API_CONTRACT.md และทั้งแถวกับไฟล์หายไป"""
+    uid = _login(client, "del-owner@luma.ai", "DelOwner")  # no-secret-check
+    rel_path, full_path = _stored_file(app)
+    asset_id = _add_asset(app, rel_path, uid)
+
+    res = client.delete(f"/api/assets/{asset_id}")
+
+    assert res.status_code == 200
+    assert res.get_json() == {"status": "deleted", "asset_id": asset_id}
+    assert not os.path.exists(full_path)
+    with app.app_context():
+        assert db.session.get(Asset, asset_id) is None
+    assert client.get("/api/assets").get_json()["total"] == 0
+
+
+def test_cannot_delete_someone_elses_or_ownerless_asset(client, app):
+    """[กรณีทดสอบ #58]: ลบของคนอื่นหรือของที่ไม่มีเจ้าของ -> 404 (ไม่ใช่ 403) และของยังอยู่ครบ"""
+    uid_a = _login(client, "del-a@luma.ai", "DelA")  # no-secret-check
+    other = app.test_client()
+    _login(other, "del-b@luma.ai", "DelB")  # no-secret-check
+    rel_path, full_path = _stored_file(app)
+    try:
+        owned = _add_asset(app, rel_path, uid_a)
+        ownerless = _add_asset(app, rel_path, None)
+
+        assert other.delete(f"/api/assets/{owned}").status_code == 404
+        assert client.delete(f"/api/assets/{ownerless}").status_code == 404
+        assert client.delete("/api/assets/999999").status_code == 404
+
+        assert os.path.exists(full_path)
+        with app.app_context():
+            assert db.session.get(Asset, owned) is not None
+            assert db.session.get(Asset, ownerless) is not None
+    finally:
+        os.remove(full_path)
+
+
+def test_delete_when_file_already_gone_still_removes_row(client, app, caplog):
+    """[กรณีทดสอบ #58]: ไฟล์หายไปก่อนแล้ว -> ไม่ fail ลบแถวได้ และ log warning (API_CONTRACT.md)"""
+    uid = _login(client, "del-gone@luma.ai", "DelGone")  # no-secret-check
+    asset_id = _add_asset(app, "uploads/generated/already-gone.png", uid)
+
+    with caplog.at_level("WARNING"):
+        res = client.delete(f"/api/assets/{asset_id}")
+
+    assert res.status_code == 200
+    with app.app_context():
+        assert db.session.get(Asset, asset_id) is None
+    assert any("already-gone.png" in r.getMessage() for r in caplog.records)
+
+
+def test_failed_db_commit_keeps_the_image_file(client, app):
+    """[กรณีทดสอบ #58 รีวิว #140]: ลบแถวใน DB ไม่สำเร็จ (เช่น database is locked) -> ไฟล์ต้องยังอยู่
+
+    เดิมลบไฟล์ก่อน commit — commit ล้มแล้ว rollback แถวกลับมา แต่ไฟล์หายถาวร
+    ภาพที่ยังอยู่ในแกลเลอรีจึงเปิดไม่ได้อีกเลย
+    """
+    from unittest.mock import patch
+    from sqlalchemy.exc import OperationalError
+
+    uid = _login(client, "del-locked@luma.ai", "DelLocked")  # no-secret-check
+    rel_path, full_path = _stored_file(app, "locked")
+    try:
+        asset_id = _add_asset(app, rel_path, uid)
+        with patch.object(db.session, "commit",
+                          side_effect=OperationalError("DELETE", {}, Exception("database is locked"))):
+            res = client.delete(f"/api/assets/{asset_id}")
+
+        assert res.status_code == 500 and "error" in res.get_json()
+        assert os.path.exists(full_path), "ไฟล์ต้องถูกคืนที่เดิมเมื่อ commit ล้ม"
+        leftovers = [f for f in os.listdir(os.path.dirname(full_path)) if f.startswith(os.path.basename(full_path) + ".")]
+        assert leftovers == [], f"ต้องไม่มีไฟล์ชั่วคราวค้าง: {leftovers}"
+        with app.app_context():
+            assert db.session.get(Asset, asset_id) is not None
+        image = client.get(f"/api/assets/{asset_id}/image")
+        assert image.status_code == 200, "ภาพต้องยังเปิดได้"
+        image.close()
+
+        # ลองลบใหม่เมื่อ DB กลับมาปกติ -> สำเร็จ
+        assert client.delete(f"/api/assets/{asset_id}").status_code == 200
+        assert not os.path.exists(full_path)
+    finally:
+        if os.path.exists(full_path):
+            os.remove(full_path)
+
+
+def test_delete_never_touches_files_outside_uploads(client, app):
+    """[กรณีทดสอบ #58]: file_path ในแถวชี้ออกนอก uploads/ (เช่น ../) -> ต้องไม่ลบไฟล์นั้น
+
+    file_path มาจาก DB ไม่ใช่จากผู้ใช้โดยตรง แต่ถ้าแถวเพี้ยนเมื่อไหร่ DELETE จะกลายเป็นคำสั่งลบไฟล์อะไรก็ได้
+    """
+    uid = _login(client, "del-escape@luma.ai", "DelEscape")  # no-secret-check
+    outside = os.path.join(app.instance_path, "do-not-delete.txt")
+    os.makedirs(app.instance_path, exist_ok=True)
+    with open(outside, "w", encoding="utf-8") as f:
+        f.write("keep me")
+    try:
+        asset_id = _add_asset(app, "uploads/../do-not-delete.txt", uid)
+        res = client.delete(f"/api/assets/{asset_id}")
+        assert res.status_code == 200
+        assert os.path.exists(outside), "ไฟล์นอก uploads/ ต้องไม่ถูกลบ"
+    finally:
+        os.remove(outside)
+
+
 # ==============================================================================
 # ตัวรันสำหรับสั่งรันไฟล์นี้โดยตรง (Direct Runner)
 # ==============================================================================

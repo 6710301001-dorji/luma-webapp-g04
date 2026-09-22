@@ -37,6 +37,7 @@
 | [ADR-006](#adr-006--รายชื่อส่วนตัวเก็บในไฟล์ที่ไม่ขึ้น-git) | รายชื่อส่วนตัวเก็บในไฟล์ที่ไม่ขึ้น git | ✅ | `tools/check_no_secrets.py` |
 | [ADR-007](#adr-007--pin-ด้วย--เท่านั้น-และ-requirements-devtxt-ต้องใช้--r) | pin ด้วย `==` เท่านั้น · dev ใช้ `-r` | ✅ | `tools/check_version_alignment.py` |
 | [ADR-008](#adr-008--orm-ทำหน้าที่-schema-กับ-migration-ส่วน-query-เขียนเป็น-sql-ดิบ) | ORM ทำ schema/migration · query เป็น SQL ดิบ | ✅ | checklist ตอนรีวิว PR |
+| [ADR-009](#adr-009--migration-ที่ใช้-batch_alter_table-ต้องปิด-pragma-foreign_keys-เอง) | batch migration ต้องปิด `PRAGMA foreign_keys` เอง | ✅ | checklist ตอนรีวิว PR |
 
 ---
 
@@ -441,6 +442,111 @@ row = db.session.execute(
 - [ ] ไฟล์ใน `queries/` ทุกไฟล์ใช้ `:name` ไม่ใช่การต่อสตริง
 - [ ] เปลี่ยน schema แล้วมีไฟล์ migration มาด้วยไหม
 - [ ] query ที่ใช้ JOIN / GROUP BY / window function ไปโผล่เป็น ORM แทนที่จะเป็น `.sql` ไหม
+
+---
+
+## ADR-009 — migration ที่ใช้ batch_alter_table ต้องปิด PRAGMA foreign_keys เอง
+
+**วันที่**: 2026-09-22 · **สถานะ**: ✅ · **เกิดจาก**: #119 / PR #142
+
+### บริบท
+
+SQLite เปลี่ยน collation ของคอลัมน์ด้วย `ALTER TABLE` ตรงๆ ไม่ได้ Alembic จึงมี
+`batch_alter_table` ซึ่งทำงานโดย **สร้างตารางใหม่ คัดลอกข้อมูล DROP ตัวเดิม แล้ว RENAME**
+
+`assets.user_id` เป็น FK ชี้ไป `users.id` แบบ `ON DELETE CASCADE` (ดู ADR-008 และ
+`services/backend/app/models/asset.py`) และ `_enable_sqlite_foreign_keys()` เปิด
+`PRAGMA foreign_keys=ON` ให้ทุก connection
+
+### ปัญหา
+
+สามชั้นซ้อนกัน แต่ละชั้นเกิดจากการแก้ชั้นก่อนหน้า
+
+1. **DROP TABLE users ระหว่าง batch จะลาก assets ไปด้วย** เพราะ CASCADE ทำงาน
+   ตอนนั้นพอดี — ไม่มี error ไม่มีคำเตือน ภาพของผู้ใช้หายเงียบ
+2. **`PRAGMA foreign_keys` เปลี่ยนค่าไม่ได้ขณะมี transaction ค้าง** (SQLite ไม่สนคำสั่ง
+   เงียบๆ) migration จึงต้องปิดก่อนเปิด transaction และคืนค่าหลังปิด transaction
+   แปลว่า **migration ต้อง commit เอง** ระหว่างทาง
+3. **พอ migration commit เอง transaction ของ Alembic ก็จบไปด้วย** การเขียน
+   `alembic_version` หลังจากนั้นไปอยู่ใน transaction ใหม่ที่ไม่มีใคร commit
+   ทดลองถอด `connection.commit()` ใน `env.py` ออก: test ล้ม 3 ข้อ และ
+   `alembic_version` ค้างที่ `deba60c08f36` ทั้งที่ schema เป็น NOCASE แล้ว
+
+### ทางเลือกที่พิจารณา
+
+| ทาง | ผลที่ได้ | ทำไมไม่เลือก |
+|---|---|---|
+| ก. ไม่ปิด FK เลย | โค้ดสั้นที่สุด | ทดลองแล้ว assets ของผู้ใช้หายจริงตอน migration |
+| ข. ปิด FK ให้ **ทุก** migration ที่ `env.py` | เขียนที่เดียวจบ ไม่ต้องจำ | migration อื่นเสียตาข่าย FK ไปด้วยทั้งที่ไม่ได้ขอ — ขอบเขตกว้างเกินปัญหา |
+| **ค. ปิด FK เฉพาะใน migration ตัวที่ต้องใช้ + `commit()` ปิดท้ายที่ `env.py`** ✅ | ขอบเขตแคบที่สุด | ราคาคือผูกสองไฟล์เข้าหากัน จึงต้องมี ADR นี้ |
+
+> **`copy_from=` ไม่ใช่ทางเลือกของปัญหานี้** — ฉบับแรกของ ADR นี้ใส่ไว้ในตารางข้างบน ซึ่งผิด
+> docstring ของ `Operations.batch_alter_table` (Alembic 1.19.1) ระบุว่า `copy_from` คือ
+> *"Table object ที่ใช้เป็นโครงสร้างของตารางที่กำลังคัดลอก ถ้าไม่ใส่จะใช้การ reflect แทน"*
+> และโยงไปหัวข้อ `batch_offline_mode` — มันแก้เรื่อง **reflection กับ offline mode**
+> ไม่ได้แก้เรื่อง FK เพราะ batch ยังต้อง DROP ตารางเดิมอยู่ดี
+>
+> เหตุผลที่ฉบับแรกใช้ปฏิเสธมันก็ผิดด้วย — ที่เขียนว่า "โมเดลเปลี่ยนแล้วสองที่จะไม่ตรงกัน"
+> กลับด้าน ไฟล์ migration **ตั้งใจ** เก็บ schema ของ revision ในอดีตไว้อยู่แล้ว นั่นคือหน้าที่ของมัน
+
+### การตัดสินใจ
+
+migration ที่ใช้ `batch_alter_table` กับตารางที่มีตารางอื่นอ้างถึงด้วย FK ต้อง:
+
+1. ตรวจว่าไม่มี SQLite transaction ค้างอยู่ แล้วจึงอ่านค่า `PRAGMA foreign_keys` เดิมเก็บไว้
+2. ปิด FK แล้ว **อ่านกลับมายืนยันว่าปิดจริง** ไม่ใช่เชื่อว่าสั่งไปแล้ว
+3. ทำงานใน `BEGIN` ของตัวเอง ตรวจ `PRAGMA foreign_key_check` **ก่อน** commit
+4. คืนค่า `PRAGMA foreign_keys` **ค่าเดิม** ใน `finally` ไม่ใช่ตั้งเป็น 1 เสมอ
+
+และ `env.py` commit ปิดท้ายสำหรับ SQLite เพื่อให้ `alembic_version` ที่เขียนหลัง
+migration commit เองไม่หายไป
+
+### ผลที่ตามมา
+
+- ✅ `assets` ของผู้ใช้ไม่หายทั้งขาขึ้นและขาลง — มี test คุมทั้งสองทาง
+- ✅ คืนค่า PRAGMA เดิม ไม่ทับค่าที่คนอื่นตั้งไว้ (ทดลองด้วย `old_fk=0` คืนออกมาเป็น 0)
+- ✅ ถ้ามีแถวชนกันแบบไม่สนตัวพิมพ์ migration หยุดตั้งแต่ยังไม่แตะ schema
+- ⚠️ **`connection.commit()` ใน `env.py` มีผลกับ migration SQLite ทุกตัว** ถ้าวันหลังมี
+  migration ที่ตั้งใจให้ rollback ทั้งก้อน ต้องกลับมาคิดข้อนี้ใหม่
+- ⚠️ **schema กับ `alembic_version` ไม่ atomic** จำลองให้ขั้นเขียน revision ล้มบนฐานชั่วคราว:
+  schema เป็น NOCASE แล้ว แต่ `alembic_version` ยังเป็น revision เก่า ข้อมูลครบ และ
+  `upgrade` ซ้ำกู้กลับมาได้ (ทดลองกับฐานที่มี user 1 asset 1 แถว)
+
+  **ข้อนี้ไม่ได้เกิดจาก ADR นี้** — แยกสองอย่างนี้ออกจากกันให้ชัด
+
+  *สิ่งที่ทดลองพบ* — ยิงการทดลองแบบเดียวกันใส่ `deba60c08f36` ซึ่งไม่มี `commit()`
+  ข้างในเลย ได้ผลเหมือนกัน: ตาราง `users` ถูกสร้างค้างไว้ ขณะที่ revision ยังเป็น
+  `18566175f613` **ทดสอบกับ migration 2 ตัวที่มีอยู่เท่านั้น ยังไม่พอสรุปว่าเป็นทุกกรณี**
+
+  *กลไกที่อธิบายผลนั้น* — ไม่ได้อนุมานจากการทดลองสองรอบข้างบน แต่วัดแยกต่างหากด้วย
+  `sqlite3` เปล่าๆ: driver อยู่ใน legacy transaction mode (`isolation_level = ''`)
+  ซึ่ง **ไม่เปิด transaction ให้ DDL** เปิดให้เฉพาะ DML
+
+  ```
+  หลัง CREATE TABLE (DDL) -> in_transaction = False -> connection ใหม่เห็นตารางแล้ว
+  หลัง INSERT       (DML) -> in_transaction = True  -> connection ใหม่เห็น 0 แถว
+  ```
+
+  DDL จึง commit ทันทีไม่ว่า Alembic จะจัดการ transaction อย่างไร ส่วนบรรทัด log
+  `Will assume non-transactional DDL` เป็นการที่ Alembic **บอกว่ามันรู้เรื่องนี้**
+  ไม่ใช่ตัวที่ทำให้เกิด
+- ⚠️ migration แบบนี้ใช้ `flask db upgrade --sql` (offline) ไม่ได้ เพราะ batch mode ต้อง
+  reflect ตารางจากฐานจริง — `deba60c08f36` ก็ใช้ไม่ได้อยู่แล้วด้วยเหตุผลเดียวกัน
+  ถ้าวันหลังจำเป็นต้องใช้ offline mode จริง ทางที่ Alembic เตรียมไว้คือ `copy_from=`
+  (ดูหมายเหตุท้ายหัวข้อ "ทางเลือกที่พิจารณา") ซึ่งเป็นคนละเรื่องกับการจัดการ FK
+- ⚠️ guard ใช้ `COLLATE NOCASE` กับ `group_concat()` ซึ่งเป็นของ SQLite ตอนย้ายไป
+  PostgreSQL ต้องเขียนใหม่เป็น `lower()` หรือ `CITEXT` (จดไว้ในหัวไฟล์ migration แล้ว)
+
+### บังคับใช้อย่างไร
+
+ยังไม่มีสคริปต์ตรวจ ใช้ checklist ตอนรีวิว PR:
+
+- [ ] migration ใช้ `batch_alter_table` กับตารางที่มีตารางอื่นอ้างถึงด้วย FK ไหม
+      ถ้าใช่ ปิด `PRAGMA foreign_keys` ระหว่างทางและคืนค่าเดิมใน `finally` แล้วหรือยัง
+- [ ] มี `PRAGMA foreign_key_check` **ก่อน** commit ไหม
+- [ ] มี test ที่พิสูจน์ว่าแถวในตารางที่อ้างถึงยังอยู่ครบ ทั้ง upgrade และ downgrade
+- [ ] จะลบ `connection.commit()` ใน `services/database/migrations/env.py` หรือเปล่า
+      ถ้าใช่ รัน `services/database/tests/test_users_nocase.py` ก่อน — 3 ข้อจะล้มทันที
 
 ---
 
