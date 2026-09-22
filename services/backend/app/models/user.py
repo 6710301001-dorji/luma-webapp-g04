@@ -19,8 +19,15 @@ class User(db.Model):
     # unique=True สร้าง UNIQUE index ให้ในตัว จึงไม่ต้องประกาศ index ซ้ำ
     # ตรงนี้เป็นการกันชื่อซ้ำ "ที่ระดับฐานข้อมูล" ไม่ใช่แค่เช็คในโค้ด
     # ซึ่งสำคัญเพราะสองคนสมัครพร้อมกันจะรอดด่านเช็คในโค้ดไปทั้งคู่
-    username = db.Column(db.String(80), nullable=False, unique=True)
-    email = db.Column(db.String(255), nullable=False, unique=True)
+    # collation="NOCASE" — ทำให้ UNIQUE ของ SQLite เทียบแบบไม่สนตัวพิมพ์
+    # ถ้าไม่มีบรรทัดนี้ 'Boss' กับ 'boss' จะเป็นสองบัญชีได้ และการกันซ้ำจะเหลือ
+    # แค่การเช็คใน Python ซึ่งมี race condition (ดู migration c1a7f5d9e204)
+    username = db.Column(
+        db.String(80, collation="NOCASE"), nullable=False, unique=True
+    )
+    email = db.Column(
+        db.String(255, collation="NOCASE"), nullable=False, unique=True
+    )
 
     # เก็บ "แฮช" ไม่ใช่รหัสผ่านจริง ชื่อคอลัมน์ตั้งให้ผิดยาก
     # ตัวแฮชเป็นงานของคนที่ 1 ตอนทำ #49/#50 ฝั่งนี้แค่เตรียมที่เก็บให้
