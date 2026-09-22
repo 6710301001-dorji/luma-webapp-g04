@@ -37,7 +37,19 @@
   },
   "pipeline/05_evaluation/quality_metrics.py": {
     "image": "output/quality_metrics_before_after.png",
-    "note": "Scores use the clean reference, not the noisy input; this is one controlled example."
+    "note": "Scores use the clean reference, not the noisy input; this is one controlled example.",
+    "table": "evaluation/quality_metrics_table.csv",
+    "table_inputs": {
+      "reference": "input/evidence_reference.png",
+      "before": "input/evidence_noisy.png"
+    },
+    "table_parameters": {
+      "gamma": 0.5,
+      "box_size": 3,
+      "gaussian_size": 3,
+      "median_size": 3,
+      "histogram_matching_reference": "input/evidence_reference.png"
+    }
   },
   "pipeline/05_evaluation/segmentation_metrics.py": {
     "image": "output/segmentation_metrics_before_after.png",

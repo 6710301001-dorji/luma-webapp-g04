@@ -19,6 +19,7 @@ from matplotlib import pyplot as plt
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT.parent))
 OUTPUT = ROOT / 'output'
+EVALUATION = ROOT / 'evaluation'
 MANIFEST = {}
 
 
@@ -58,6 +59,7 @@ def comparison(stage, name, panels, note):
 
 def main():
     OUTPUT.mkdir(exist_ok=True)
+    EVALUATION.mkdir(exist_ok=True)
     # Analytical shapes make hue selection and contour geometry easy to inspect.
     scene = np.full((192, 256, 3), (45, 40, 35), dtype=np.uint8)
     cv2.circle(scene, (70, 95), 43, (30, 30, 230), -1)
@@ -140,6 +142,31 @@ def main():
         scores = quality.image_quality(gray, candidate)
         panels.append((f"{label}\nPSNR {scores['psnr']:.2f} dB; SSIM {scores['ssim']:.3f}", candidate))
     comparison(stage, 'quality_metrics', panels, 'Scores use the clean reference, not the noisy input; this is one controlled example.')
+    # Keep every method on the same noisy input and clean reference so the
+    # report table compares methods fairly, including methods that worsen it.
+    enhanced = {
+        'gamma': point.gamma(noisy, 0.5),
+        'log': point.log_transform(noisy),
+        'contrast_stretch': point.contrast_stretch(noisy),
+        'equalization': mapping.equalize(noisy),
+        'histogram_matching': mapping.match_histogram(noisy, gray),
+        'box': filters.box(noisy),
+        'gaussian': filters.gaussian(noisy),
+        'median': denoised,
+    }
+    quality.write_csv(quality.before_after_table(gray, noisy, enhanced), EVALUATION / 'quality_metrics_table.csv')
+    MANIFEST['pipeline/05_evaluation/quality_metrics.py']['table'] = 'evaluation/quality_metrics_table.csv'
+    MANIFEST['pipeline/05_evaluation/quality_metrics.py']['table_inputs'] = {
+        'reference': 'input/evidence_reference.png',
+        'before': 'input/evidence_noisy.png',
+    }
+    MANIFEST['pipeline/05_evaluation/quality_metrics.py']['table_parameters'] = {
+        'gamma': 0.5,
+        'box_size': 3,
+        'gaussian_size': 3,
+        'median_size': 3,
+        'histogram_matching_reference': 'input/evidence_reference.png',
+    }
     metrics = module(stage, 'segmentation_metrics')
     truth = np.zeros(gray.shape, dtype=np.uint8)
     prediction = truth.copy()
