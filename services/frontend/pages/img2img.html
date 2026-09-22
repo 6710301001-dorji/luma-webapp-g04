@@ -93,8 +93,11 @@
       <section class="generate-preview-card">
         <div class="i2i-stage" id="i2i-stage">
           <p class="preview-placeholder" id="i2i-placeholder">เลือกภาพต้นฉบับเพื่อเริ่ม</p>
-          <canvas class="i2i-layer" id="i2i-base" hidden></canvas>
-          <canvas class="i2i-layer i2i-layer--mask" id="i2i-mask" hidden></canvas>
+          <!-- wrapper ขนาดเท่าภาพที่แสดง — ชั้น mask ต้องทับภาพพอดี ไม่ใช่ทับกล่อง stage (รีวิว #143) -->
+          <div class="i2i-canvas-wrap">
+            <canvas class="i2i-layer" id="i2i-base" hidden></canvas>
+            <canvas class="i2i-layer i2i-layer--mask" id="i2i-mask" hidden></canvas>
+          </div>
         </div>
 
         <div class="i2i-result" id="i2i-result" hidden>
