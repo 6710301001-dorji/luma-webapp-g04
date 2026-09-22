@@ -46,6 +46,28 @@
 
 ## เครื่องมือ
 
+### Benchmark baseline for issue #68
+
+Run from the repository root with the project environment:
+
+```bash
+python services/ai-engine/pipeline/05_evaluation/benchmark_baseline.py \
+  --output services/ai-engine/samples/benchmark
+```
+
+This compares a 15 × 15 box filter implemented as a 2D convolution with two
+separable 1D passes on the same deterministic 1024 × 1024 grayscale image.
+The script saves a CSV, labeled PNG graph, and machine metadata. The committed
+sample in `samples/benchmark/` is one run on a Mac; times vary by hardware.
+
+When real Forge is available **before the job queue is deployed**, run the same
+script with `--ai-url http://127.0.0.1:8000`. It then times three generation
+step counts and two simultaneous users over HTTP and saves p50/p95 values and
+a labeled graph. Record the Forge machine, model, and sampler beside those
+results. Mock Forge timings are useful for checking the script but are not
+evidence of real generation performance. The after-queue comparison must
+measure from job submission through `done`, including polling time.
+
 - `time.perf_counter()` สำหรับจับเวลาโค้ด
 - `matplotlib` พลอต histogram / กราฟเปรียบเทียบ (Lecture 4 หน้า 28–29
   แนะนำให้ปรับรูปแบบกราฟ ใส่ label, grid ด้วย)
@@ -59,6 +81,41 @@
 4. **ข้อสรุป** ว่าอะไรดีขึ้น อะไรยังเป็นคอขวด
 
 > เก็บ output ทั้งหมดไว้เป็นไฟล์ ไม่ใช่แค่ print ออกจอ — ต้องเอาไปใส่รายงาน
+
+## Implementation
+
+`quality_metrics.py` provides the first evaluation task from issue #66:
+
+- `image_quality()` calculates PSNR and SSIM for grayscale or BGR images.
+- `before_after_table()` requires results for all eight implemented enhancement
+  methods: gamma, log, contrast stretch, equalization, histogram matching,
+  box, Gaussian, and median. It fills every metric column.
+- `write_csv()` exports the complete table for the report.
+
+Use a clean reference image, its degraded `before` image, and the output from
+each enhancement operation. This module measures existing results and does not
+import Flask or duplicate the enhancement algorithms.
+
+Run `python services/ai-engine/samples/generate_evidence.py` from the repository
+root to regenerate `samples/evaluation/quality_metrics_table.csv`. The table uses
+all eight methods on the same deterministic noisy image and clean reference.
+Negative changes are retained: a method that worsens this image should not be
+presented as an improvement. These synthetic fixtures demonstrate the method;
+use project photographs for the final report.
+
+## Segmentation metrics
+
+`segmentation_metrics.py` measures binary masks for issue #67:
+
+- IoU measures overlap with the hand-drawn ground truth.
+- Precision measures how many selected pixels really belong to the object.
+- Recall measures how many ground-truth object pixels were found.
+- Pixel confusion counts show true/false positives and negatives.
+- `evaluate_cases()` requires at least five named mask pairs.
+- `write_csv()` saves a complete per-case table for the report.
+
+Five reproducible fixtures are stored in `../../samples/segmentation/`. They
+exercise the code but do not replace evaluation on final project photographs.
 
 ## เชื่อมกับเมธอดในสไลด์
 

@@ -37,7 +37,8 @@
       if (errorBox) errorBox.setAttribute("hidden", "");
 
       try {
-        const url = new URL(`${API_BASE}/api/assets`);
+        // API_BASE ว่าง (same-origin) -> path แบบ relative ต้องมี base ไม่งั้น new URL() โยน TypeError
+        const url = new URL(`${API_BASE}/api/assets`, window.location.origin);
         url.searchParams.set("page", String(page));
         url.searchParams.set("per_page", String(perPage));
         if (query) {
@@ -115,8 +116,15 @@
         dateEl.textContent = "-";
       }
 
+      const deleteBtn = document.createElement("button");
+      deleteBtn.type = "button";
+      deleteBtn.className = "asset-card__delete";
+      deleteBtn.textContent = "ลบ";
+      deleteBtn.addEventListener("click", () => deleteAsset(item, deleteBtn));
+
       footer.appendChild(idEl);
       footer.appendChild(dateEl);
+      footer.appendChild(deleteBtn);
 
       body.appendChild(promptEl);
       body.appendChild(footer);
@@ -125,6 +133,30 @@
       card.appendChild(body);
 
       return card;
+    }
+
+    // #58: ต้องถามยืนยันก่อนลบ — ลบแล้วเอาคืนไม่ได้ (ลบทั้งไฟล์และแถวใน DB)
+    async function deleteAsset(item, button) {
+      if (!window.confirm(`ลบภาพ #${item.id} ถาวร?\nลบแล้วกู้คืนไม่ได้`)) return;
+
+      button.disabled = true;
+      try {
+        const res = await fetch(`${API_BASE}/api/assets/${item.id}`, {
+          method: "DELETE",
+          headers: { ...window.csrfHeaders() },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.error || `HTTP ${res.status}`);
+        }
+        // ลบใบสุดท้ายของหน้าที่ไม่ใช่หน้าแรก -> ถอยไปหน้าก่อน ไม่ค้างอยู่หน้าว่าง
+        const lastOnPage = grid.children.length === 1 && currentPage > 1;
+        loadAssets(lastOnPage ? currentPage - 1 : currentPage, currentQuery);
+      } catch (err) {
+        console.error("Delete asset error:", err);
+        alert(`ลบภาพไม่สำเร็จ: ${err.message}`);
+        button.disabled = false;
+      }
     }
 
     function updatePagination(page, totalPages) {

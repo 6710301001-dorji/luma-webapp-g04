@@ -6,13 +6,19 @@ Endpoints สำหรับระบบสมาชิก Authentication พร
 import time
 from collections import defaultdict
 from flask import Blueprint, jsonify, request, session, current_app
+from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.models import User, db
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
-# ระบบบันทึกการพยายาม Login ล้มเหลวแบบ In-memory (IP -> [timestamp1, timestamp2, ...])
+# ระบบบันทึกการพยายาม Login ล้มเหลวแบบ In-memory (อีเมล -> [timestamp1, timestamp2, ...])
+#
+# นับตามอีเมลที่พยายามล็อกอิน ไม่ใช่ IP (#15 F14): คนใช้ network เดียวกัน (Wi-Fi มหาลัย, NAT)
+# มี IP ขาออกเดียวกัน นับตาม IP แล้วคนเดียวเดารหัสผิดทำให้ทุกคนล็อกอินไม่ได้ ส่วนคนร้าย
+# สลับ IP ได้ง่ายกว่าสลับบัญชีเป้าหมาย
 #
 # ข้อจำกัดที่รู้อยู่: dict นี้อยู่ในโปรเซสเดียว — รีสตาร์ทแอปแล้วรีเซ็ตทันที
 # และถ้ารันหลาย worker/instance พร้อมกัน แต่ละตัวจะนับแยกกันเอง (ไม่ share state)
@@ -24,26 +30,34 @@ _login_failed_attempts: dict[str, list[float]] = defaultdict(list)
 # ว่าอีเมลไหนสมัครไว้แล้วจากข้อความ error ที่ต่างกัน
 _INVALID_CREDENTIALS = "อีเมลหรือรหัสผ่านไม่ถูกต้อง / Invalid credentials"
 
+# สมัครซ้ำ: ข้อความเดียวไม่ว่าจะซ้ำที่อีเมลหรือชื่อ และตอบ 400 ตาม docs/API_CONTRACT.md (#49)
+_ALREADY_TAKEN = "อีเมลหรือชื่อนี้ถูกใช้แล้ว / Email or displayName already taken"
 
-def check_rate_limit(ip_address: str, max_attempts: int = 5, window_seconds: int = 60) -> bool:
-    """ตรวจสอบว่า IP นี้ถูกบล็อกจาก Rate Limiting หรือไม่"""
+
+def _invalid(field: str, message: str):
+    """400 ที่บอกว่าฟิลด์ไหนผิด — `errors` ตาม contract ส่วน `error` ให้ register.js ที่อ่านอยู่แล้ว"""
+    return jsonify({"error": message, "errors": {field: message}}), 400
+
+
+def check_rate_limit(key: str, max_attempts: int = 5, window_seconds: int = 60) -> bool:
+    """ตรวจสอบว่าบัญชีนี้ (key = อีเมลแบบ lower) ถูกบล็อกจาก Rate Limiting หรือไม่"""
     now = time.time()
-    attempts = _login_failed_attempts[ip_address]
+    attempts = _login_failed_attempts[key]
 
     # ลบ timestamps ที่หมดอายุเกิน window_seconds ออก
-    _login_failed_attempts[ip_address] = [t for t in attempts if now - t < window_seconds]
+    _login_failed_attempts[key] = [t for t in attempts if now - t < window_seconds]
 
-    return len(_login_failed_attempts[ip_address]) >= max_attempts
+    return len(_login_failed_attempts[key]) >= max_attempts
 
 
-def record_failed_attempt(ip_address: str):
+def record_failed_attempt(key: str):
     """บันทึกการพยายาม Login ที่ล้มเหลว"""
-    _login_failed_attempts[ip_address].append(time.time())
+    _login_failed_attempts[key].append(time.time())
 
 
-def reset_rate_limit(ip_address: str):
+def reset_rate_limit(key: str):
     """ล้างประวัติการพยายามเมื่อ Login สำเร็จ"""
-    _login_failed_attempts.pop(ip_address, None)
+    _login_failed_attempts.pop(key, None)
 
 
 @auth_bp.route("/ping", methods=["GET"])
@@ -56,22 +70,29 @@ def ping():
 def register():
     """POST /api/auth/register — สมัครสมาชิกใหม่ บันทึกลงตาราง users จริง (Issue #16/#50)"""
     data = request.get_json(silent=True) or {}
-    email = data.get("email", "").strip().lower()
-    display_name = data.get("displayName", "").strip()
+    if not isinstance(data, dict):
+        return jsonify({"error": "คำขอต้องเป็น JSON object / Request must be a JSON object"}), 400
+    email = data.get("email", "")
+    display_name = data.get("displayName", "")
     password = data.get("password", "")
+    if not all(isinstance(v, str) for v in (email, display_name, password)):
+        return jsonify({"error": "email, displayName, password ต้องเป็นข้อความ / must be strings"}), 400
+    email = email.strip().lower()
+    display_name = display_name.strip()
 
     if not email or "@" not in email:
-        return jsonify({"error": "กรุณาระบุอีเมลที่ถูกต้อง / Valid email required"}), 400
+        return _invalid("email", "กรุณาระบุอีเมลที่ถูกต้อง / Valid email required")
     if not display_name:
-        return jsonify({"error": "กรุณาระบุชื่อแสดงผล / displayName required"}), 400
+        return _invalid("displayName", "กรุณาระบุชื่อแสดงผล / displayName required")
     if not password or len(password) < 8:
-        return jsonify({"error": "รหัสผ่านต้องมีความยาวอย่างน้อย 8 ตัวอักษร / Password must be at least 8 chars"}), 400
+        return _invalid("password", "รหัสผ่านต้องมีความยาวอย่างน้อย 8 ตัวอักษร / Password must be at least 8 chars")
 
+    # ชื่อเทียบแบบไม่สนตัวพิมพ์เหมือนอีเมล ("Aaa" กับ "aaa" คือคนเดียวกัน) แต่เก็บตามที่ผู้ใช้พิมพ์
     existing = User.query.filter(
-        (User.email == email) | (User.username == display_name)
+        (User.email == email) | (func.lower(User.username) == display_name.lower())
     ).first()
     if existing is not None:
-        return jsonify({"error": "อีเมลหรือชื่อนี้ถูกใช้แล้ว / Email or displayName already taken"}), 409
+        return jsonify({"error": _ALREADY_TAKEN}), 400
 
     user = User(
         username=display_name,
@@ -79,7 +100,12 @@ def register():
         password_hash=generate_password_hash(password),
     )
     db.session.add(user)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except IntegrityError:
+        # สองคนสมัครพร้อมกันผ่านด่านเช็คข้างบนไปทั้งคู่ -> UNIQUE ในฐานปฏิเสธคนที่สอง
+        db.session.rollback()
+        return jsonify({"error": _ALREADY_TAKEN}), 400
 
     return jsonify({
         "status": "success",
@@ -91,30 +117,35 @@ def register():
 @auth_bp.route("/login", methods=["POST"])
 def login():
     """POST /api/auth/login — เข้าสู่ระบบด้วยข้อมูลจริงจากตาราง users พร้อม Rate Limiting (Issue #50/#51)"""
-    ip_address = request.remote_addr or "127.0.0.1"
-
-    # 1. ตรวจสอบ Rate Limiting (บล็อกถ้าเกิน 5 ครั้งใน 1 นาที)
-    if check_rate_limit(ip_address, max_attempts=5, window_seconds=60):
-        current_app.logger.warning(f"Rate limit exceeded สำหรับ IP: {ip_address}")
-        return jsonify({
-            "error": "พยายามเข้าสู่ระบบผิดพลาดเกินกำหนด กรุณารอ 1 นาที / Too many login attempts. Please try again in 1 minute.",
-        }), 429
-
     data = request.get_json(silent=True) or {}
-    email = data.get("email", "").strip().lower()
+    if not isinstance(data, dict):
+        return jsonify({"error": "คำขอต้องเป็น JSON object / Request must be a JSON object"}), 400
+    email = data.get("email", "")
     password = data.get("password", "")
+    if not isinstance(email, str) or not isinstance(password, str):
+        return jsonify({"error": "email และ password ต้องเป็นข้อความ / must be strings"}), 400
+    email = email.strip().lower()
 
     if not email or not password:
         return jsonify({"error": "กรุณาระบุอีเมลและรหัสผ่าน / Email and password required"}), 400
 
+    # 1. ตรวจสอบ Rate Limiting ต่อบัญชี (บล็อกถ้าผิดเกิน 5 ครั้งใน 1 นาที) — เช็คก่อนเทียบรหัส
+    #    ทำให้ช่วงที่โดนบล็อก รหัสถูกก็เข้าไม่ได้ คนเดาจึงแยกไม่ออกว่าเดาถูกแล้วหรือยัง
+    if check_rate_limit(email, max_attempts=5, window_seconds=60):
+        # log แค่ IP ไม่ log อีเมลที่พยายาม (ข้อมูลส่วนบุคคล)
+        current_app.logger.warning("Rate limit exceeded (login) จาก IP: %s", request.remote_addr)
+        return jsonify({
+            "error": "พยายามเข้าสู่ระบบผิดพลาดเกินกำหนด กรุณารอ 1 นาที / Too many login attempts. Please try again in 1 minute.",
+        }), 429
+
     # 2. เทียบรหัสผ่านจริงกับ hash ในตาราง users — ไม่ใช่การเทียบสตริง/ความยาวแบบเดิม
     user = User.query.filter_by(email=email).first()
     if user is None or not check_password_hash(user.password_hash, password):
-        record_failed_attempt(ip_address)
+        record_failed_attempt(email)
         return jsonify({"error": _INVALID_CREDENTIALS}), 401
 
     # Login สำเร็จ -> ล้างประวัติล้มเหลว
-    reset_rate_limit(ip_address)
+    reset_rate_limit(email)
 
     # เก็บแค่ user_id ใน session ไม่ยัดข้อมูล user ทั้งก้อนลง cookie
     session["user_id"] = user.id

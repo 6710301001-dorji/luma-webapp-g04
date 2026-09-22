@@ -21,7 +21,7 @@
       <section class="canvas-workarea-card">
         <div class="canvas-preview-container" id="canvas-preview-container">
           <p id="canvas-placeholder" style="color: #666; font-size: 0.9rem; text-align: center; padding: 1rem;">
-            เลือกภาพจากเครื่องเพื่อเริ่มต้นใช้งาน
+            เลือกภาพจากเครื่องหรือจากแกลเลอรีเพื่อเริ่มต้นใช้งาน
           </p>
           <img class="canvas-preview-img" id="canvas-preview-img" alt="Canvas Workarea" hidden />
         </div>
@@ -32,11 +32,29 @@
         <!-- 1. นำเข้าภาพ -->
         <div class="tool-card">
           <h3>1. แหล่งที่มาของภาพ</h3>
-          <p>เลือกไฟล์ภาพจากคอมพิวเตอร์ของคุณเพื่อนำมาปรับแต่ง</p>
+          <p>อัปโหลดภาพจากเครื่อง หรือเลือกภาพที่เคยสร้างไว้ในแกลเลอรี</p>
           <label class="tool-btn tool-btn--outline" style="cursor: pointer;">
             📁 อัปโหลดภาพจากเครื่อง
             <input type="file" id="canvas-upload-input" accept="image/*" style="display: none;" />
           </label>
+          <button type="button" class="tool-btn tool-btn--outline canvas-pick-btn" id="btn-pick-gallery">
+            🖼️ เลือกจากแกลเลอรี
+          </button>
+          <p class="canvas-picker-message" id="gallery-picker-message" hidden></p>
+          <div class="canvas-picker" id="gallery-picker" hidden></div>
+        </div>
+
+        <!-- จัดวางภาพ (Issue #60) -->
+        <div class="tool-card">
+          <h3>จัดวางภาพ</h3>
+          <p>ลากภาพบนพื้นที่ทำงานเพื่อย้ายตำแหน่ง และปรับขนาดด้วยแถบด้านล่าง</p>
+          <label class="canvas-scale-label" for="canvas-scale">
+            ขนาด <span id="canvas-scale-value">100%</span>
+          </label>
+          <input type="range" id="canvas-scale" min="20" max="200" step="5" value="100" disabled />
+          <button type="button" class="tool-btn tool-btn--outline" id="btn-reset-layout" disabled>
+            ↺ รีเซ็ตตำแหน่งและขนาด
+          </button>
         </div>
 
         <!-- 2. ตัดพื้นหลัง (Issue #61) -->
@@ -66,6 +84,7 @@
 
   <form id="logout-form" action="#" method="post" hidden></form>
 
+  <script src="../js/csrf.js"></script>
   <script src="../js/layout.js"></script>
   <script src="../js/canvas.js"></script>
 </body>

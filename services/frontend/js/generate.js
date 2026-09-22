@@ -8,7 +8,7 @@
  */
 
 (() => {
-  const API_BASE = window.LUMA_CONFIG ? window.LUMA_CONFIG.apiBase : "http://127.0.0.1:5000";
+  const API_BASE = window.LUMA_CONFIG ? window.LUMA_CONFIG.apiBase : "";
 
   function initGeneratePage() {
     const form = document.getElementById("generate-form");
@@ -49,7 +49,9 @@
       const steps = parseInt(form.steps ? form.steps.value : "20", 10) || 20;
       const cfg_scale = parseFloat(form.cfg_scale ? form.cfg_scale.value : "8.0") || 8.0;
       const sampler_name = form.sampler_name ? form.sampler_name.value : "DPM++ 2M Karras";
-      const seed = parseInt(form.seed ? form.seed.value : "-1", 10) || -1;
+      // ห้ามใช้ `|| -1` — seed 0 เป็นค่าที่ถูกต้อง แต่เป็น falsy จะกลายเป็น -1 (สุ่ม)
+      const parsedSeed = parseInt(form.seed ? form.seed.value : "-1", 10);
+      const seed = Number.isNaN(parsedSeed) ? -1 : parsedSeed;
       const width = parseInt(form.width ? form.width.value : "512", 10) || 512;
       const height = parseInt(form.height ? form.height.value : "512", 10) || 512;
 
@@ -71,6 +73,7 @@
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            ...window.csrfHeaders(),
           },
           body: JSON.stringify(payload),
         });

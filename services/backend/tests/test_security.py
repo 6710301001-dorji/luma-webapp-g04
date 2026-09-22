@@ -63,7 +63,7 @@ def test_login_rate_limiting():
         db.session.commit()
 
     test_ip = "192.168.1.99"
-    reset_rate_limit(test_ip)
+    reset_rate_limit("victim@luma.ai")  # ตัวนับเก็บตามอีเมล (#15 F14)  # no-secret-check
 
     # ลองผิด 5 ครั้งแรก (ต้องได้ 401 Unauthorized) — user มีจริง แต่รหัสผ่านผิด
     for i in range(5):
@@ -81,6 +81,53 @@ def test_login_rate_limiting():
         environ_base={"REMOTE_ADDR": test_ip},
     )
     assert res_blocked.status_code == 429, f"ครั้งที่ 6 ต้องถูกบล็อกด้วย 429 แต่ได้ {res_blocked.status_code}"
+
+
+def _two_users_app():
+    from app.routes.auth import _login_failed_attempts
+    _login_failed_attempts.clear()
+    app = create_app({"TESTING": True, "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:"})
+    with app.app_context():
+        db.create_all()
+        for name in ("target", "neighbour"):
+            db.session.add(User(username=name, email=f"{name}@luma.ai",  # no-secret-check
+                                password_hash=generate_password_hash("correct-password")))
+        db.session.commit()
+    return app
+
+
+def _login_as(client, email, password, ip):
+    return client.post("/api/auth/login", json={"email": email, "password": password},
+                       environ_base={"REMOTE_ADDR": ip})
+
+
+def test_rate_limit_does_not_block_other_accounts_on_the_same_network():
+    """[กรณีทดสอบ #15 F14]: เดารหัสบัญชี A จนโดนบล็อก -> บัญชี B จาก IP เดียวกันต้องยังล็อกอินได้
+
+    นับตาม IP ทำให้คนทั้ง Wi-Fi มหาลัย (IP ขาออกเดียวกัน) โดนบล็อกไปด้วย
+    """
+    client = _two_users_app().test_client()
+    shared_ip = "10.1.1.1"
+    for _ in range(5):
+        assert _login_as(client, "target@luma.ai", "wrong-password-x", shared_ip).status_code == 401  # no-secret-check
+    assert _login_as(client, "target@luma.ai", "wrong-password-x", shared_ip).status_code == 429  # no-secret-check
+
+    res = _login_as(client, "neighbour@luma.ai", "correct-password", shared_ip)  # no-secret-check
+    assert res.status_code == 200, f"บัญชีอื่นบน IP เดียวกันต้องไม่โดนบล็อก แต่ได้ {res.status_code}"
+
+
+def test_rate_limit_follows_the_account_across_ips():
+    """[กรณีทดสอบ #15 F14]: เดารหัสบัญชีเดียวโดยสลับ IP ทุกครั้ง -> ยังต้องโดนบล็อกที่ครั้งที่ 6
+
+    อีเมลที่ส่งมาเทียบแบบไม่สนตัวพิมพ์ — "TARGET@" ต้องนับรวมกับ "target@"
+    """
+    client = _two_users_app().test_client()
+    for i in range(5):
+        email = "TARGET@luma.ai" if i % 2 else "target@luma.ai"  # no-secret-check
+        assert _login_as(client, email, "wrong-password-x", f"203.0.113.{i}").status_code == 401  # no-secret-check
+
+    res = _login_as(client, "target@luma.ai", "correct-password", "203.0.113.99")  # no-secret-check
+    assert res.status_code == 429, f"สลับ IP แล้วต้องยังโดนบล็อก แต่ได้ {res.status_code}"
 
 
 def test_login_with_correct_password_succeeds_and_is_not_rate_limited():
@@ -101,7 +148,7 @@ def test_login_with_correct_password_succeeds_and_is_not_rate_limited():
         db.session.commit()
 
     test_ip = "192.168.1.100"
-    reset_rate_limit(test_ip)
+    reset_rate_limit("correctuser@luma.ai")  # no-secret-check
 
     # รหัสผ่านยาวพอ (>= 8) แต่ไม่ใช่รหัสที่สมัครไว้ ต้องได้ 401 ไม่ใช่ผ่าน
     res_wrong = client.post(
@@ -120,6 +167,57 @@ def test_login_with_correct_password_succeeds_and_is_not_rate_limited():
     assert res_correct.status_code == 200
 
 
+# ------------------------------------------------------------------------------
+# CSRF (#51 MUST: "ส่งฟอร์มโดยไม่มี CSRF token -> ถูกปฏิเสธ")
+# test อื่นทั้งหมดรันแบบ TESTING ซึ่งปิด CSRF ไว้เป็นค่าเริ่มต้น — ตรงนี้เปิดเองชัดๆ
+# ------------------------------------------------------------------------------
+_NEW_USER = {"email": "csrf@luma.ai", "displayName": "Csrf", "password": "password123"}  # no-secret-check
+
+
+def _csrf_client():
+    app = create_app({"TESTING": True, "WTF_CSRF_ENABLED": True, "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:"})
+    with app.app_context():
+        db.create_all()
+    return app.test_client()
+
+
+def test_post_without_csrf_token_is_rejected_as_json():
+    """[กรณีทดสอบ]: POST ที่ไม่มี CSRF token ต้องได้ 400 JSON ทุก endpoint ที่เปลี่ยนสถานะ"""
+    client = _csrf_client()
+    for path, body in (("/api/auth/register", _NEW_USER), ("/api/auth/logout", {}), ("/api/generate", {"prompt": "cat"})):
+        res = client.post(path, json=body)
+        assert res.status_code == 400, f"{path} ควรได้ 400 แต่ได้ {res.status_code}"
+        assert "error" in res.get_json(), path
+
+
+def test_post_with_token_from_cookie_is_accepted():
+    """[กรณีทดสอบ]: token ที่ backend ส่งมาใน cookie csrf_token ใส่ header X-CSRFToken แล้วผ่าน (แบบที่ JS ทำ)"""
+    client = _csrf_client()
+    client.get("/api/auth/me")
+    cookie = client.get_cookie("csrf_token")
+    assert cookie is not None, "backend ต้องส่ง cookie csrf_token ให้ JS อ่าน"
+    assert not cookie.http_only, "JS ต้องอ่าน cookie นี้ได้"
+
+    res = client.post("/api/auth/register", json=_NEW_USER, headers={"X-CSRFToken": cookie.value})
+    assert res.status_code == 201
+
+
+def test_post_with_wrong_csrf_token_is_rejected():
+    """[กรณีทดสอบ]: token ปลอมต้องถูกปฏิเสธ"""
+    client = _csrf_client()
+    client.get("/api/auth/me")
+    res = client.post("/api/auth/register", json=_NEW_USER, headers={"X-CSRFToken": "forged"})
+    assert res.status_code == 400
+
+
+def test_delete_without_csrf_token_is_rejected():
+    """[กรณีทดสอบ #58]: DELETE /api/assets/<id> ก็เปลี่ยนสถานะ — ไม่มี token ต้องได้ 400 ก่อนถึง route"""
+    client = _csrf_client()
+    res = client.delete("/api/assets/1")
+    assert res.status_code == 400
+    assert "error" in res.get_json()
+
+
 # ==============================================================================
 # ตัวรันสำหรับสั่งรันไฟล์นี้โดยตรง (Direct Runner)
 # ==============================================================================
@@ -133,6 +231,9 @@ if __name__ == "__main__":
         ("ตรวจสอบการตั้งค่า Cookie Hardening", test_cookie_security_config),
         ("ตรวจสอบ Rate Limiting บล็อกหลังลองผิด 5 ครั้ง (HTTP 429)", test_login_rate_limiting),
         ("ตรวจสอบรหัสผ่านผิดจริงถูกปฏิเสธ / รหัสถูกผ่านได้", test_login_with_correct_password_succeeds_and_is_not_rate_limited),
+        ("POST ไม่มี CSRF token -> 400 JSON", test_post_without_csrf_token_is_rejected_as_json),
+        ("POST ใส่ token จาก cookie -> ผ่าน", test_post_with_token_from_cookie_is_accepted),
+        ("POST token ปลอม -> 400", test_post_with_wrong_csrf_token_is_rejected),
     ]
 
     passed = 0

@@ -106,6 +106,11 @@ def run_migrations_online():
         with context.begin_transaction():
             context.run_migrations()
 
+        # SQLite batch migration #119 commits before restoring PRAGMA foreign_keys.
+        # Persist Alembic's version update as well before this connection closes.
+        if connection.dialect.name == "sqlite":
+            connection.commit()
+
 
 if context.is_offline_mode():
     run_migrations_offline()

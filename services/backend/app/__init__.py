@@ -9,8 +9,10 @@ Issue #51 — OWASP Security Headers, Cookie Hardening & Rate Limiting
 
 import os
 import logging
+import secrets
 from flask import Flask, jsonify
 from flask_migrate import Migrate
+from flask_wtf.csrf import CSRFProtect, generate_csrf
 from app.models import db
 
 
@@ -49,28 +51,33 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     instance_path = os.path.join(backend_dir, "instance")
 
+    # เสิร์ฟ services/frontend/ ที่ origin เดียวกับ /api/ — ไม่ต้องมี CORS และ cookie session
+    # ส่งไปกับ fetch เอง (แยก origin :8080/:5000 เดิม browser บล็อกทุก fetch)
+    # ตรงกับ V5 ที่ nginx รวม / กับ /api/ ไว้ origin เดียว
+    frontend_dir = os.path.abspath(os.path.join(backend_dir, "..", "frontend"))
+
     app = Flask(
         __name__,
         instance_path=instance_path,
         instance_relative_config=True,
+        static_folder=frontend_dir,
+        static_url_path="",
     )
 
     # 1. กำหนดค่าคอนฟิกเริ่มต้น (Default Configurations)
     app.config.from_mapping(
-        SECRET_KEY="luma-dev-secret-key-change-in-production",
         SQLALCHEMY_DATABASE_URI=f"sqlite:///{os.path.join(instance_path, 'luma.db')}",
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
-        AI_ENGINE_URL="http://127.0.0.1:7860",
+        AI_ENGINE_URL="http://127.0.0.1:8000",
         FORGE_TIMEOUT_SECONDS=120,
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
     )
 
     # 2. โหลดค่าคอนฟิกจาก instance/config.py (ถ้ามี)
-    try:
-        app.config.from_pyfile("config.py", silent=True)
-    except Exception:
-        pass
+    # silent=True ข้ามแค่กรณีไม่มีไฟล์ — config.py ที่ syntax พังต้อง error ออกมา
+    # ไม่งั้นแอปจะเปิดขึ้นด้วยค่า default เงียบๆ โดยไม่มีใครรู้
+    app.config.from_pyfile("config.py", silent=True)
 
     # 3. นำค่า config_overrides มาทับสำหรับการรันเทส (Testing Mode)
     if config_overrides:
@@ -78,6 +85,20 @@ def create_app(config_overrides: dict | None = None) -> Flask:
 
     # ตั้งค่าระบบ Logging สะอาดไม่ซ้อน (Issue #48)
     setup_logging(app)
+
+    # ห้ามมี SECRET_KEY ตายตัวในโค้ดหรือใช้ placeholder จาก config.py.example (#51)
+    # ทั้งสองค่าเปิดเผยอยู่ใน repo — ใครก็เซ็น cookie session ปลอมเป็น user คนไหนก็ได้
+    # ไม่ได้ตั้งไว้ -> สุ่มใหม่ทุกครั้งที่เปิดแอป ยังรันได้โดยไม่มี config.py (#46)
+    # แลกกับ session หลุดทุกครั้งที่รีสตาร์ท
+    key = app.config.get("SECRET_KEY")
+    if not key or str(key).startswith("CHANGE-ME"):
+        app.config["SECRET_KEY"] = secrets.token_hex(32)
+        if not app.config.get("TESTING"):
+            app.logger.warning(
+                "ไม่ได้ตั้ง SECRET_KEY ใน instance/config.py — ใช้ค่าสุ่มชั่วคราว session จะหลุดทุกครั้งที่รีสตาร์ท "
+                "/ SECRET_KEY not set, using a random one. "
+                'Run: python -c "import secrets; print(secrets.token_hex(32))"'
+            )
 
     # 4. สร้างโฟลเดอร์ instance และ upload directory ถ้ายังไม่มี
     os.makedirs(instance_path, exist_ok=True)
@@ -89,6 +110,12 @@ def create_app(config_overrides: dict | None = None) -> Flask:
 
     migrations_dir = os.path.abspath(os.path.join(backend_dir, "..", "database", "migrations"))
     migrate = Migrate(app, db, directory=migrations_dir)
+
+    # CSRF (#51) — POST/PUT/PATCH/DELETE ต้องมี header X-CSRFToken ไม่งั้น 400
+    # (CSRFError เป็น BadRequest จึงออกเป็น JSON ผ่าน handler 400 ด้านล่างเอง)
+    # ปิดไว้ตอน TESTING เป็นค่าเริ่มต้น test ที่ต้องการตรวจ CSRF เปิดเองด้วย WTF_CSRF_ENABLED=True
+    app.config.setdefault("WTF_CSRF_ENABLED", not app.config.get("TESTING"))
+    CSRFProtect(app)
 
     # ==========================================================================
     # Security Headers (OWASP) แนบในทุก Response (Issue #51)
@@ -105,6 +132,16 @@ def create_app(config_overrides: dict | None = None) -> Flask:
             "script-src 'self' 'unsafe-inline'; "
             "style-src 'self' 'unsafe-inline';"
         )
+        # ส่ง CSRF token ใน cookie ที่ JS อ่านได้ (ไม่ HttpOnly) — js/csrf.js ใส่ค่านี้ใน header ทุก POST
+        # เว็บอื่นอ่าน cookie ของ origin นี้ไม่ได้ จึงปลอม header ไม่ได้
+        # ส่งใหม่ทุก response ให้ token สดตลอดตอนผู้ใช้ยังใช้งานอยู่ (หมดอายุ 1 ชม. ตาม Flask-WTF)
+        if app.config["WTF_CSRF_ENABLED"]:
+            response.set_cookie(
+                "csrf_token",
+                generate_csrf(),
+                samesite="Lax",
+                secure=app.config.get("SESSION_COOKIE_SECURE", False),
+            )
         return response
 
     # ==========================================================================
@@ -149,5 +186,9 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     def health_check():
         app.logger.info("Health check endpoint ถูกเรียกใช้งาน")
         return jsonify({"status": "ok", "service": "luma-backend"}), 200
+
+    @app.route("/")
+    def index():
+        return app.redirect("/pages/index.html")
 
     return app

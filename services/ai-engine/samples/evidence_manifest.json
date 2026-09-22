@@ -1,0 +1,79 @@
+{
+  "pipeline/01_acquisition/acquisition.py": {
+    "image": "output/acquisition_before_after.png",
+    "note": "Actual normalize_width output; display panels share a size, pixel dimensions differ."
+  },
+  "pipeline/02_enhancement/histogram.py": {
+    "image": "output/histogram_before_after.png",
+    "note": "A measurement module: input image and computed histogram, not an enhanced image."
+  },
+  "pipeline/02_enhancement/point_operations.py": {
+    "image": "output/point_operations_before_after.png",
+    "note": "All panels use the same display range 0-255; brightness changes are not autoscaled."
+  },
+  "pipeline/02_enhancement/histogram_mapping.py": {
+    "image": "output/histogram_mapping_before_after.png",
+    "note": "Matching uses the displayed reference; equalization uses the input distribution."
+  },
+  "pipeline/02_enhancement/spatial_filters.py": {
+    "image": "output/spatial_filters_before_after.png",
+    "note": "Seed 132; salt/pepper probabilities 3.5% each; identical noisy input for every filter."
+  },
+  "pipeline/03_segmentation/segmentation.py": {
+    "image": "output/segmentation_before_after.png",
+    "note": "Hue 0 +/- 20 degrees; saturation >= 60, value >= 40; morphology kernel 3."
+  },
+  "pipeline/04_features/color_palette.py": {
+    "image": "output/color_palette_before_after.png",
+    "note": "Four-color synthetic fixture; bar lengths are computed pixel proportions."
+  },
+  "pipeline/04_features/feature_vector.py": {
+    "image": "output/feature_vector_before_after.png",
+    "note": "Indices 0-23: 8-bin B/G/R histograms; 24-27: normalized grayscale statistics."
+  },
+  "pipeline/04_features/shape_sharpness.py": {
+    "image": "output/shape_sharpness_before_after.png",
+    "note": "Red contour: area 5500, perimeter 266.3, circularity 0.975."
+  },
+  "pipeline/05_evaluation/quality_metrics.py": {
+    "image": "output/quality_metrics_before_after.png",
+    "note": "Scores use the clean reference, not the noisy input; this is one controlled example.",
+    "table": "evaluation/quality_metrics_table.csv",
+    "table_inputs": {
+      "reference": "input/evidence_reference.png",
+      "before": "input/evidence_noisy.png"
+    },
+    "table_parameters": {
+      "gamma": 0.5,
+      "box_size": 3,
+      "gaussian_size": 3,
+      "median_size": 3,
+      "histogram_matching_reference": "input/evidence_reference.png"
+    }
+  },
+  "pipeline/05_evaluation/segmentation_metrics.py": {
+    "image": "output/segmentation_metrics_before_after.png",
+    "note": "IoU 0.712; precision 0.832; recall 0.832. Synthetic mask pair, not real annotation."
+  },
+  "pipeline/05_evaluation/benchmark_baseline.py": {
+    "image": "output/benchmark_baseline_before_after.png",
+    "note": "Local measured timing; varies by machine. Max output difference: 0.000092.",
+    "measurement": {
+      "box_2d_ms": 1.1654170084511861,
+      "box_separable_ms": 0.11454200284788385,
+      "speedup": 10.1745820701154,
+      "max_pixel_difference": 9.1552734375e-05,
+      "recorded_at_utc": "2026-09-21T16:03:40.755314+00:00",
+      "machine": "arm64",
+      "system": "Darwin",
+      "python": "3.12.0",
+      "opencv": "5.0.0",
+      "image_shape": [
+        192,
+        256
+      ],
+      "kernel_size": 15,
+      "repeats": 10
+    }
+  }
+}

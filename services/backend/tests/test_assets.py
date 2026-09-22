@@ -14,22 +14,17 @@ if BASE_DIR not in sys.path:
 from app.models import db, Asset
 
 
-def _login(client):
-    """สมัคร + login user ชั่วคราว ให้ client มี session ที่ login อยู่
+def _login(client, email="assets-test@luma.ai", name="AssetsTester"):  # no-secret-check
+    """สมัคร + login user ชั่วคราว ให้ client มี session ที่ login อยู่ แล้วคืน user id
 
-    จำเป็นเพราะ /api/assets และ /api/assets/<id>/image บังคับล็อกอินแล้ว
-    (รีวิว PR #99 ข้อ 1 — เดิมเปิดให้ทุกคนดูได้โดยไม่ต้อง login = IDOR)
+    /api/assets กรองตามเจ้าของแล้ว (#115) — asset ใน test ต้องใส่ user_id ของคนที่ login
     """
-    client.post("/api/auth/register", json={
-        "email": "assets-test@luma.ai",  # no-secret-check
-        "displayName": "AssetsTester",
-        "password": "password123",
-    })
-    res = client.post("/api/auth/login", json={
-        "email": "assets-test@luma.ai",  # no-secret-check
-        "password": "password123",
-    })
+    from app.models import User
+    client.post("/api/auth/register", json={"email": email, "displayName": name, "password": "password123"})
+    res = client.post("/api/auth/login", json={"email": email, "password": "password123"})
     assert res.status_code == 200, "setup ล้มเหลว: login ไม่ผ่าน"
+    with client.application.app_context():
+        return User.query.filter_by(email=email).first().id
 
 
 def test_list_assets_requires_login(client):
@@ -52,14 +47,14 @@ def test_get_asset_image_requires_login(client, app):
 
 def test_list_assets_ordered_by_newest(client, app):
     """[กรณีทดสอบ]: ดึงรายการภาพทั้งหมด ภาพที่สร้างล่าสุดต้องอยู่บนสุด"""
-    _login(client)
+    uid = _login(client)
     with app.app_context():
         # created_at ต้องต่างกันชัดเจน ไม่งั้นแถวที่ add_all พร้อมกันจะได้เวลาเท่ากัน
         # จนไม่ได้ทดสอบการเรียงจริง (รีวิว PR #99 ข้อ 3)
         base = datetime.now(timezone.utc)
-        a1 = Asset(prompt="Oldest image", file_path="p1.png", created_at=base)
-        a2 = Asset(prompt="Middle image", file_path="p2.png", created_at=base + timedelta(seconds=1))
-        a3 = Asset(prompt="Newest image", file_path="p3.png", created_at=base + timedelta(seconds=2))
+        a1 = Asset(prompt="Oldest image", file_path="p1.png", created_at=base, user_id=uid)
+        a2 = Asset(prompt="Middle image", file_path="p2.png", created_at=base + timedelta(seconds=1), user_id=uid)
+        a3 = Asset(prompt="Newest image", file_path="p3.png", created_at=base + timedelta(seconds=2), user_id=uid)
         db.session.add_all([a1, a2, a3])
         db.session.commit()
 
@@ -76,31 +71,48 @@ def test_list_assets_ordered_by_newest(client, app):
 
 
 def test_list_assets_tiebreaker_uses_id_when_created_at_equal(client, app):
-    """[กรณีทดสอบ]: created_at เท่ากันทุกแถว ต้องเรียงด้วย id มาก->น้อยเป็นตัวตัดสิน (รีวิว PR #99 รอบ 2, api.py:122)"""
-    _login(client)
+    """[กรณีทดสอบ]: created_at เท่ากันทุกแถว ต้องเรียงด้วย id มาก->น้อยเป็นตัวตัดสิน (รีวิว PR #99 รอบ 2-3)
+
+    ผลลัพธ์อย่างเดียวพิสูจน์ไม่ได้ — SQLite เรียงค่าที่เท่ากันใน index ตาม rowid ให้อยู่แล้ว
+    ถอด id.desc() ออก ลำดับก็ยังถูกโดยบังเอิญ จึงตรวจ SQL ที่ส่งไปฐานข้อมูลจริงด้วย
+    (เปลี่ยนเป็น PostgreSQL เมื่อไหร่ ความบังเอิญนี้หายทันที)
+    """
+    from sqlalchemy import event
+
+    uid = _login(client)
     with app.app_context():
         same_time = datetime.now(timezone.utc)
-        a1 = Asset(prompt="First inserted", file_path="p1.png", created_at=same_time)
-        a2 = Asset(prompt="Second inserted", file_path="p2.png", created_at=same_time)
-        a3 = Asset(prompt="Third inserted", file_path="p3.png", created_at=same_time)
+        a1 = Asset(prompt="First inserted", file_path="p1.png", created_at=same_time, user_id=uid)
+        a2 = Asset(prompt="Second inserted", file_path="p2.png", created_at=same_time, user_id=uid)
+        a3 = Asset(prompt="Third inserted", file_path="p3.png", created_at=same_time, user_id=uid)
         db.session.add_all([a1, a2, a3])
         db.session.commit()
+        engine = db.engine
 
-    response = client.get("/api/assets")
+    statements = []
+    capture = lambda conn, cursor, stmt, *rest: statements.append(stmt)  # noqa: E731
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        response = client.get("/api/assets")
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+
     assert response.status_code == 200
-    data = response.get_json()
-    prompts = [item["prompt"] for item in data["items"]]
+    prompts = [item["prompt"] for item in response.get_json()["items"]]
     assert prompts == ["Third inserted", "Second inserted", "First inserted"], (
         f"created_at เท่ากันหมด ต้องใช้ id มากก่อนเป็น tiebreaker แต่ได้ {prompts}"
+    )
+    assert any("ORDER BY assets.created_at DESC, assets.id DESC" in s for s in statements), (
+        "query ต้องมี tiebreaker id DESC จริง ไม่ใช่พึ่งลำดับบังเอิญของ SQLite"
     )
 
 
 def test_assets_pagination(client, app):
     """[กรณีทดสอบ]: แบ่งหน้าแสดงผล เช่น มี 5 ภาพ ขอหน้าละ 2 ภาพ"""
-    _login(client)
+    uid = _login(client)
     with app.app_context():
         for i in range(1, 6):
-            db.session.add(Asset(prompt=f"Image #{i}", file_path=f"p{i}.png"))
+            db.session.add(Asset(prompt=f"Image #{i}", file_path=f"p{i}.png", user_id=uid))
         db.session.commit()
 
     response = client.get("/api/assets?page=1&per_page=2")
@@ -114,10 +126,10 @@ def test_assets_pagination(client, app):
 
 def test_assets_per_page_is_capped(client, app):
     """[กรณีทดสอบ]: per_page ใหญ่เกินไปต้องถูกจำกัดเพดาน ไม่ดึงทั้งตารางออกมาทีเดียว (รีวิว PR #99 ข้อ 5)"""
-    _login(client)
+    uid = _login(client)
     with app.app_context():
         for i in range(1, 6):
-            db.session.add(Asset(prompt=f"Image #{i}", file_path=f"p{i}.png"))
+            db.session.add(Asset(prompt=f"Image #{i}", file_path=f"p{i}.png", user_id=uid))
         db.session.commit()
 
     response = client.get("/api/assets?per_page=1000000")
@@ -128,10 +140,10 @@ def test_assets_per_page_is_capped(client, app):
 
 def test_search_assets_by_prompt_query(client, app):
     """[กรณีทดสอบ]: ค้นหาภาพที่มีคำว่า 'sakura' อยู่ใน Prompt (?q=...)"""
-    _login(client)
+    uid = _login(client)
     with app.app_context():
-        a1 = Asset(prompt="1girl walking under sakura tree", file_path="sakura.png")
-        a2 = Asset(prompt="robot in cyberpunk city", file_path="robot.png")
+        a1 = Asset(prompt="1girl walking under sakura tree", file_path="sakura.png", user_id=uid)
+        a2 = Asset(prompt="robot in cyberpunk city", file_path="robot.png", user_id=uid)
         db.session.add_all([a1, a2])
         db.session.commit()
 
@@ -148,10 +160,10 @@ def test_search_assets_escapes_wildcard_characters(client, app):
     prompt ของ Stable Diffusion ใช้ '_' บ่อย (เช่น long_hair) — ถ้าไม่ escape
     '_' จะ match ตัวอักษรอะไรก็ได้ 1 ตัว ทำให้ค้นหา 'long_hair' เจอ 'longXhair' ไปด้วย
     """
-    _login(client)
+    uid = _login(client)
     with app.app_context():
-        a1 = Asset(prompt="long_hair, 1girl", file_path="p1.png")
-        a2 = Asset(prompt="longXhair, 1girl", file_path="p2.png")
+        a1 = Asset(prompt="long_hair, 1girl", file_path="p1.png", user_id=uid)
+        a2 = Asset(prompt="longXhair, 1girl", file_path="p2.png", user_id=uid)
         db.session.add_all([a1, a2])
         db.session.commit()
 
@@ -190,15 +202,203 @@ def test_get_asset_image_not_found_returns_404(client):
 
 def test_get_asset_image_missing_file_on_disk_returns_404(client, app):
     """[กรณีทดสอบ]: มีแถวใน DB แต่ไฟล์บนดิสก์หาย ต้องได้ 404 พร้อมข้อความชัด ไม่ใช่ 500"""
-    _login(client)
+    uid = _login(client)
     with app.app_context():
-        asset = Asset(prompt="ไฟล์หาย", file_path="uploads/generated/does-not-exist.png")
+        asset = Asset(prompt="ไฟล์หาย", file_path="uploads/generated/does-not-exist.png", user_id=uid)
         db.session.add(asset)
         db.session.commit()
         asset_id = asset.id
 
     response = client.get(f"/api/assets/{asset_id}/image")
     assert response.status_code == 404
+
+
+# ------------------------------------------------------------------------------
+# Ownership (#115) — เห็นได้เฉพาะของตัวเอง · asset เก่าที่ไม่มีเจ้าของ (NULL) ซ่อนจากทุกคน ไม่ลบ
+# ------------------------------------------------------------------------------
+def test_list_assets_shows_only_own_assets(client, app):
+    """[กรณีทดสอบ]: login เป็น B ต้องไม่เห็นภาพของ A และไม่เห็นภาพเก่าที่ไม่มีเจ้าของ"""
+    uid_a = _login(client, "owner-a@luma.ai", "OwnerA")  # no-secret-check
+    other = app.test_client()
+    uid_b = _login(other, "owner-b@luma.ai", "OwnerB")  # no-secret-check
+    with app.app_context():
+        db.session.add_all([
+            Asset(prompt="A's image", file_path="a.png", user_id=uid_a),
+            Asset(prompt="B's image", file_path="b.png", user_id=uid_b),
+            Asset(prompt="legacy ownerless", file_path="old.png", user_id=None),
+        ])
+        db.session.commit()
+
+    for c, expected in ((client, ["A's image"]), (other, ["B's image"])):
+        data = c.get("/api/assets").get_json()
+        assert [i["prompt"] for i in data["items"]] == expected
+        assert data["total"] == 1
+
+
+def test_get_asset_image_of_other_user_returns_404(client, app):
+    """[กรณีทดสอบ]: เปิดภาพของคนอื่นหรือภาพไม่มีเจ้าของ ต้องได้ 404 ไม่ใช่ 403 (ไม่บอกว่า id มีอยู่จริง)"""
+    import uuid
+
+    uid_a = _login(client, "img-a@luma.ai", "ImgA")  # no-secret-check
+    other = app.test_client()
+    _login(other, "img-b@luma.ai", "ImgB")  # no-secret-check
+
+    rel_path = f"uploads/generated/test-owner-{uuid.uuid4().hex}.png"
+    full_path = os.path.join(app.instance_path, rel_path)
+    os.makedirs(os.path.dirname(full_path), exist_ok=True)
+    with open(full_path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n")
+    try:
+        with app.app_context():
+            owned = Asset(prompt="A's image", file_path=rel_path, user_id=uid_a)
+            ownerless = Asset(prompt="legacy", file_path=rel_path, user_id=None)
+            db.session.add_all([owned, ownerless])
+            db.session.commit()
+            owned_id, ownerless_id = owned.id, ownerless.id
+
+        # ต้อง close() ทุก response — send_file ถือไฟล์ค้างไว้ บน Windows จะลบไฟล์ใน finally ไม่ได้
+        status = {}
+        for label, c, aid in (("owner", client, owned_id), ("other", other, owned_id), ("ownerless", client, ownerless_id)):
+            res = c.get(f"/api/assets/{aid}/image")
+            status[label] = res.status_code
+            res.close()
+        assert status["owner"] == 200, "เจ้าของต้องเปิดได้"
+        assert status["other"] == 404, "คนอื่นต้องได้ 404"
+        assert status["ownerless"] == 404, "ภาพไม่มีเจ้าของต้องซ่อน"
+    finally:
+        os.remove(full_path)
+
+
+def _stored_file(app, name="del"):
+    """สร้างไฟล์ภาพจริงใต้ instance/uploads/generated แล้วคืน (relative, full) path"""
+    import uuid
+
+    rel_path = f"uploads/generated/test-{name}-{uuid.uuid4().hex}.png"
+    full_path = os.path.join(app.instance_path, rel_path)
+    os.makedirs(os.path.dirname(full_path), exist_ok=True)
+    with open(full_path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n")
+    return rel_path, full_path
+
+
+def _add_asset(app, file_path, user_id):
+    with app.app_context():
+        asset = Asset(prompt="to delete", file_path=file_path, user_id=user_id)
+        db.session.add(asset)
+        db.session.commit()
+        return asset.id
+
+
+def test_delete_asset_requires_login(client, app):
+    """[กรณีทดสอบ #58]: ยังไม่ login ลบไม่ได้ -> 401"""
+    asset_id = _add_asset(app, "x.png", None)
+    assert client.delete(f"/api/assets/{asset_id}").status_code == 401
+
+
+def test_owner_deletes_row_and_file(client, app):
+    """[กรณีทดสอบ #58]: เจ้าของลบ -> ตอบตาม API_CONTRACT.md และทั้งแถวกับไฟล์หายไป"""
+    uid = _login(client, "del-owner@luma.ai", "DelOwner")  # no-secret-check
+    rel_path, full_path = _stored_file(app)
+    asset_id = _add_asset(app, rel_path, uid)
+
+    res = client.delete(f"/api/assets/{asset_id}")
+
+    assert res.status_code == 200
+    assert res.get_json() == {"status": "deleted", "asset_id": asset_id}
+    assert not os.path.exists(full_path)
+    with app.app_context():
+        assert db.session.get(Asset, asset_id) is None
+    assert client.get("/api/assets").get_json()["total"] == 0
+
+
+def test_cannot_delete_someone_elses_or_ownerless_asset(client, app):
+    """[กรณีทดสอบ #58]: ลบของคนอื่นหรือของที่ไม่มีเจ้าของ -> 404 (ไม่ใช่ 403) และของยังอยู่ครบ"""
+    uid_a = _login(client, "del-a@luma.ai", "DelA")  # no-secret-check
+    other = app.test_client()
+    _login(other, "del-b@luma.ai", "DelB")  # no-secret-check
+    rel_path, full_path = _stored_file(app)
+    try:
+        owned = _add_asset(app, rel_path, uid_a)
+        ownerless = _add_asset(app, rel_path, None)
+
+        assert other.delete(f"/api/assets/{owned}").status_code == 404
+        assert client.delete(f"/api/assets/{ownerless}").status_code == 404
+        assert client.delete("/api/assets/999999").status_code == 404
+
+        assert os.path.exists(full_path)
+        with app.app_context():
+            assert db.session.get(Asset, owned) is not None
+            assert db.session.get(Asset, ownerless) is not None
+    finally:
+        os.remove(full_path)
+
+
+def test_delete_when_file_already_gone_still_removes_row(client, app, caplog):
+    """[กรณีทดสอบ #58]: ไฟล์หายไปก่อนแล้ว -> ไม่ fail ลบแถวได้ และ log warning (API_CONTRACT.md)"""
+    uid = _login(client, "del-gone@luma.ai", "DelGone")  # no-secret-check
+    asset_id = _add_asset(app, "uploads/generated/already-gone.png", uid)
+
+    with caplog.at_level("WARNING"):
+        res = client.delete(f"/api/assets/{asset_id}")
+
+    assert res.status_code == 200
+    with app.app_context():
+        assert db.session.get(Asset, asset_id) is None
+    assert any("already-gone.png" in r.getMessage() for r in caplog.records)
+
+
+def test_failed_db_commit_keeps_the_image_file(client, app):
+    """[กรณีทดสอบ #58 รีวิว #140]: ลบแถวใน DB ไม่สำเร็จ (เช่น database is locked) -> ไฟล์ต้องยังอยู่
+
+    เดิมลบไฟล์ก่อน commit — commit ล้มแล้ว rollback แถวกลับมา แต่ไฟล์หายถาวร
+    ภาพที่ยังอยู่ในแกลเลอรีจึงเปิดไม่ได้อีกเลย
+    """
+    from unittest.mock import patch
+    from sqlalchemy.exc import OperationalError
+
+    uid = _login(client, "del-locked@luma.ai", "DelLocked")  # no-secret-check
+    rel_path, full_path = _stored_file(app, "locked")
+    try:
+        asset_id = _add_asset(app, rel_path, uid)
+        with patch.object(db.session, "commit",
+                          side_effect=OperationalError("DELETE", {}, Exception("database is locked"))):
+            res = client.delete(f"/api/assets/{asset_id}")
+
+        assert res.status_code == 500 and "error" in res.get_json()
+        assert os.path.exists(full_path), "ไฟล์ต้องถูกคืนที่เดิมเมื่อ commit ล้ม"
+        leftovers = [f for f in os.listdir(os.path.dirname(full_path)) if f.startswith(os.path.basename(full_path) + ".")]
+        assert leftovers == [], f"ต้องไม่มีไฟล์ชั่วคราวค้าง: {leftovers}"
+        with app.app_context():
+            assert db.session.get(Asset, asset_id) is not None
+        image = client.get(f"/api/assets/{asset_id}/image")
+        assert image.status_code == 200, "ภาพต้องยังเปิดได้"
+        image.close()
+
+        # ลองลบใหม่เมื่อ DB กลับมาปกติ -> สำเร็จ
+        assert client.delete(f"/api/assets/{asset_id}").status_code == 200
+        assert not os.path.exists(full_path)
+    finally:
+        if os.path.exists(full_path):
+            os.remove(full_path)
+
+
+def test_delete_never_touches_files_outside_uploads(client, app):
+    """[กรณีทดสอบ #58]: file_path ในแถวชี้ออกนอก uploads/ (เช่น ../) -> ต้องไม่ลบไฟล์นั้น
+
+    file_path มาจาก DB ไม่ใช่จากผู้ใช้โดยตรง แต่ถ้าแถวเพี้ยนเมื่อไหร่ DELETE จะกลายเป็นคำสั่งลบไฟล์อะไรก็ได้
+    """
+    uid = _login(client, "del-escape@luma.ai", "DelEscape")  # no-secret-check
+    outside = os.path.join(app.instance_path, "do-not-delete.txt")
+    os.makedirs(app.instance_path, exist_ok=True)
+    with open(outside, "w", encoding="utf-8") as f:
+        f.write("keep me")
+    try:
+        asset_id = _add_asset(app, "uploads/../do-not-delete.txt", uid)
+        res = client.delete(f"/api/assets/{asset_id}")
+        assert res.status_code == 200
+        assert os.path.exists(outside), "ไฟล์นอก uploads/ ต้องไม่ถูกลบ"
+    finally:
+        os.remove(outside)
 
 
 # ==============================================================================
