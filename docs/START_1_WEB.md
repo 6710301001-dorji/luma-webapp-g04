@@ -133,7 +133,7 @@ git checkout -b feat/skeleton-web
 
 | # | ของ | รายละเอียด |
 |---|---|---|
-| 1 | หน้าเว็บ 1 หน้า | ปุ่ม 1 ปุ่ม + ที่แสดงภาพ · ช่วง V1–V3 ไฟล์อยู่ที่ `services/backend/app/templates/` (ย้ายไป `frontend/` ตอน V4) |
+| 1 | หน้าเว็บ 1 หน้า | ปุ่ม 1 ปุ่ม + ที่แสดงภาพ · ไฟล์หน้าเว็บอยู่ที่ `services/frontend/` — ตั้งแต่ #122 Flask เสิร์ฟโฟลเดอร์นั้นที่ origin เดียวกับ `/api/` ส่วน `app/templates/` เหลือแต่ `.gitkeep` ไม่ได้ใช้แล้ว |
 | 2 | `POST /api/generate` | รับ prompt → ยิง mock Forge → บันทึกไฟล์ → เก็บแถวลง SQLite |
 | 3 | `GET /api/assets` | คืนรายการ เรียงใหม่ → เก่า |
 
@@ -162,13 +162,32 @@ git checkout -b feat/skeleton-web
 
 ### ทดสอบว่าผ่าน
 
+ต้องเปิด **3 หน้าต่าง** ตามเส้นทางจริง `backend -> ai-engine -> Forge` (แก้ตามรีวิว #112 หลัง #127)
+
 ```bash
-python tools/mock_forge_server.py        # หน้าต่างที่ 1 — ฟังที่ 127.0.0.1:7860
-python services/backend/run.py           # หน้าต่างที่ 2
+# หน้าต่างที่ 1 — Forge ปลอม ฟังที่ 127.0.0.1:7860
+python tools/mock_forge_server.py
+
+# หน้าต่างที่ 2 — ai-engine ฟังที่ 127.0.0.1:8000 ชี้ไป Forge ปลอม
+#   PowerShell : $env:FORGE_URL = "http://127.0.0.1:7860"
+#   bash / zsh : export FORGE_URL=http://127.0.0.1:7860
+python services/ai-engine/app.py
+
+# หน้าต่างที่ 3 — backend
+python services/backend/run.py
 ```
 
-ตั้ง `AI_ENGINE_URL = "http://127.0.0.1:7860"` ใน `services/backend/instance/config.py`
-(คัดลอกจาก `config.py.example` — ⛔ ไฟล์จริงห้าม commit)
+**ไม่ต้องตั้ง `AI_ENGINE_URL`** ค่าเริ่มต้นเป็น `http://127.0.0.1:8000` อยู่แล้ว
+(`services/backend/app/__init__.py` และ `instance/config.py.example`)
+
+⛔ **อย่าตั้ง `AI_ENGINE_URL` ให้ชี้ `:7860` ตรงไปที่ Forge ปลอม** — หลัง #127 เส้นทางที่ตั้งใจคือ
+ผ่าน ai-engine เสมอ ถ้าชี้ตรงจะข้าม ai-engine ไปโดยไม่มีอะไรเตือน แล้วสิ่งที่ทดสอบไม่ใช่เส้นทางจริง
+
+ถ้าไม่ตั้ง `FORGE_URL` ให้หน้าต่างที่ 2 ai-engine จะตอบ `503 FORGE_URL is not configured`
+ไม่ใช่ค้างเงียบ — เห็นข้อความนี้แปลว่าลืมตั้งตัวแปร ไม่ใช่ Forge ล่ม
+
+ส่วน `services/backend/instance/config.py` คัดลอกจาก `config.py.example`
+(⛔ ไฟล์จริงห้าม commit — ADR-006)
 
 เงื่อนไข **MUST** ของ #45 ที่ตกอยู่กับคุณ:
 
