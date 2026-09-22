@@ -6,8 +6,9 @@ Endpoint สร้างภาพ AI (Issue #22) + คลังผลงาน (
 import os
 
 from flask import Blueprint, current_app, jsonify, request, send_file, session
-from app.models import db, Asset
-from app.services.forge_client import edit_image, generate_image, ForgeClientError
+from app.models import db, Asset, Job
+from app.services.forge_client import edit_image, ForgeClientError
+from app.services.job_queue import enqueue
 from app.services.image_input import ALLOWED_SIZES, ImageInputError, decode_image, nearest_size
 from app.services.ai_engine_client import extract_color_palette, PipelineClientError
 
@@ -83,9 +84,11 @@ def _parse_generation_params(data: dict, default_width: int = 512, default_heigh
 
 @api_bp.route("/generate", methods=["POST"])
 def handle_generate():
-    """POST /api/generate — สั่งสร้างภาพใหม่ผ่าน Forge AI หรือ Mock Server (Issue #22)
+    """POST /api/generate — ใส่งานสร้างภาพเข้าคิว ตอบ 202 ทันที (Issue #21, #22)
 
-    ต้อง login — ภาพผูกเจ้าของเป็นคนที่ login อยู่ (#115) และคนนอกใช้ GPU ไม่ได้
+    ต้อง login — งานและภาพผูกเจ้าของเป็นคนที่ login อยู่ (#115) และคนนอกใช้ GPU ไม่ได้
+    ภาพจริงสร้างโดย worker (services/job_queue.py) — frontend ถามผลที่ GET /api/jobs/<id>
+    ตรวจ input ครบที่นี่ก่อนเข้าคิว — input ผิดต้องได้ 400 ทันที ไม่ใช่ไปล้มใน worker
     """
     user_id = session.get("user_id")
     if not user_id:
@@ -104,31 +107,31 @@ def handle_generate():
     if error:
         return error
 
-    try:
-        relative_path, seed_used = generate_image(prompt=prompt, **params)
-    except ForgeClientError as e:
-        return jsonify({"error": e.message}), e.status_code
-    except Exception as e:
-        current_app.logger.error(f"เกิดข้อผิดพลาดในการสร้างภาพ: {e}", exc_info=True)
-        return jsonify({"error": "เกิดข้อผิดพลาดในการติดต่อ AI Engine / Internal Server Error"}), 500
+    job = enqueue(user_id, prompt, params)
+    return jsonify({"status": "queued", "job_id": job.id}), 202
 
-    try:
-        new_asset = Asset(
-            prompt=prompt,
-            file_path=relative_path,
-            user_id=user_id,
-        )
-        db.session.add(new_asset)
-        db.session.commit()
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.error(f"ไม่สามารถบันทึกข้อมูล Asset: {e}", exc_info=True)
-        return jsonify({"error": "ไม่สามารถบันทึกข้อมูลลงฐานข้อมูลได้ / Database error"}), 500
+
+@api_bp.route("/jobs/<int:job_id>", methods=["GET"])
+def get_job(job_id: int):
+    """GET /api/jobs/<job_id> — สถานะงานสร้างภาพ pending | running | done | failed (#21)
+
+    ต้อง login · งานของคนอื่นหรือไม่มี id นี้ -> 404 แบบเดียวกับ asset (ไม่บอกว่ามีอยู่จริง)
+    """
+    if "user_id" not in session:
+        return jsonify({"error": "ยังไม่ได้เข้าสู่ระบบ / Unauthorized"}), 401
+
+    job = db.session.get(Job, job_id)
+    if job is None or job.user_id != session["user_id"]:
+        return jsonify({"error": "ไม่พบงานที่ระบุ / Job not found"}), 404
 
     return jsonify({
-        "status": "success",
-        "asset_id": new_asset.id,
-        "image_url": f"/api/assets/{new_asset.id}/image",
+        "job_id": job.id,
+        "status": job.status,
+        "prompt": job.prompt,
+        "asset_id": job.asset_id,
+        "image_url": f"/api/assets/{job.asset_id}/image" if job.status == "done" and job.asset_id else None,
+        "seed_used": job.seed_used,
+        "error": job.error,
     }), 200
 
 

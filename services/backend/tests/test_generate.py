@@ -74,7 +74,7 @@ def test_generate_requires_login():
     """[กรณีทดสอบ]: ยังไม่ login สร้างภาพไม่ได้ (401) และต้องไม่ใช้ GPU เลย (#115)"""
     from unittest.mock import patch
 
-    with patch("app.routes.api.generate_image", side_effect=_must_not_reach_ai_engine):
+    with patch("app.services.job_queue.generate_image", side_effect=_must_not_reach_ai_engine):
         res = _app_with_db().test_client().post("/api/generate", json={"prompt": "cat"})
     assert res.status_code == 401
 
@@ -87,11 +87,16 @@ def test_generate_saves_owner_from_session():
     app = _app_with_db()
     client = app.test_client()
     uid = _login(client)
-    with patch("app.routes.api.generate_image", return_value=("uploads/generated/x.png", 7)):
-        res = client.post("/api/generate", json={"prompt": "cat"})
-    assert res.status_code == 200
+    from app.services import job_queue
+
+    res = client.post("/api/generate", json={"prompt": "cat"})
+    assert res.status_code == 202  # เข้าคิว (#21) — ภาพสร้างโดย worker
+    with patch("app.services.job_queue.generate_image", return_value=("uploads/generated/x.png", 7)):
+        with app.app_context():
+            job_queue.process_available()
+    job = client.get(f"/api/jobs/{res.get_json()['job_id']}").get_json()
     with app.app_context():
-        assert db.session.get(Asset, res.get_json()["asset_id"]).user_id == uid
+        assert db.session.get(Asset, job["asset_id"]).user_id == uid
 
 
 def test_generate_rejects_non_string_fields_and_non_object_body():
@@ -99,7 +104,7 @@ def test_generate_rejects_non_string_fields_and_non_object_body():
     from unittest.mock import patch
 
     client = _logged_in_client()
-    with patch("app.routes.api.generate_image", side_effect=_must_not_reach_ai_engine):
+    with patch("app.services.job_queue.generate_image", side_effect=_must_not_reach_ai_engine):
         for body in ({"prompt": None}, {"prompt": 123}, {"prompt": "cat", "negative_prompt": 5}, [1, 2]):
             res = client.post("/api/generate", json=body)
             assert res.status_code == 400, f"{body} ควรได้ 400 แต่ได้ {res.status_code}"
@@ -113,7 +118,7 @@ def test_generate_limits_match_ai_engine():
     from unittest.mock import patch
 
     client = _logged_in_client()
-    with patch("app.routes.api.generate_image", side_effect=_must_not_reach_ai_engine):
+    with patch("app.services.job_queue.generate_image", side_effect=_must_not_reach_ai_engine):
         for extra in ({"steps": 51}, {"width": 20000}, {"height": -512}, {"width": 513}):
             res = client.post("/api/generate", json={"prompt": "cat", **extra})
             assert res.status_code == 400, f"{extra} ควรได้ 400 แต่ได้ {res.status_code}"
@@ -128,7 +133,7 @@ def test_generate_rejects_booleans_in_numeric_fields():
     from unittest.mock import patch
 
     client = _logged_in_client()
-    with patch("app.routes.api.generate_image", side_effect=_must_not_reach_ai_engine):
+    with patch("app.services.job_queue.generate_image", side_effect=_must_not_reach_ai_engine):
         for field in ("steps", "cfg_scale", "seed", "width", "height"):
             for value in (True, False):
                 res = client.post("/api/generate", json={"prompt": "cat", field: value})

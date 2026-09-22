@@ -72,5 +72,6 @@ def _enable_sqlite_foreign_keys(dbapi_connection, connection_record):
 # ทุกครั้งที่เพิ่มโมเดลใหม่ ต้องมาเพิ่มบรรทัด import ที่นี่ด้วย
 from app.models.asset import Asset  # noqa: E402  (ต้องอยู่หลัง db)
 from app.models.user import User  # noqa: E402
+from app.models.job import Job  # noqa: E402
 
-__all__ = ["db", "Asset", "User"]
+__all__ = ["db", "Asset", "User", "Job"]
