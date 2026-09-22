@@ -6,7 +6,7 @@ const [scenario, scriptPath] = process.argv.slice(2);
 
 const replies = {
   created: { ok: true, status: 201, json: async () => ({ status: "success" }) },
-  taken: { ok: false, status: 409, json: async () => ({ error: "อีเมลหรือชื่อนี้ถูกใช้แล้ว / Email or displayName already taken" }) },
+  taken: { ok: false, status: 400, json: async () => ({ error: "อีเมลหรือชื่อนี้ถูกใช้แล้ว / Email or displayName already taken" }) },
   html_500: { ok: false, status: 500, json: async () => { throw new SyntaxError("Unexpected token <"); } },
 };
 
