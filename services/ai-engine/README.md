@@ -26,6 +26,23 @@ Conflicting combinations receive HTTP 400. The API response still contains
 `images` and `seed_used`; actual scheduler behavior should be checked with real
 Forge when it is available.
 
+## Image-to-image bridge
+
+`POST /forge/img2img` accepts a plain base64 `init_image`, `prompt`, and
+`denoising_strength` (0–1). `mode` may be `text`, `sketch`, `inpaint`, or
+`inpaint-sketch`; both inpaint modes require a same-size base64 `mask`.
+Text and sketch modes reject a mask. In an inpaint mask, white is the area to
+edit and black is preserved. The sketch mode expects the already painted source
+image. Send plain base64 rather than a Data URL; the backend strips any Data URL
+prefix before calling this service. The service validates
+inputs, forwards the source image as Forge's `init_images` list, and returns
+`{"images":["<base64>"],"seed_used":123}`. Invalid input receives 400.
+
+Forge's real `/sdapi/v1/img2img` API uses `init_images`. The current project
+mock accepts `init_image` at that path instead, so bridge tests verify the real
+Forge request shape with a stubbed HTTP response. Visual comparison of low and
+high denoising strengths still requires a running Forge model.
+
 ## Smart Canvas palette route
 
 `POST /pipeline/04_features/color_palette` accepts plain base64 image bytes:
