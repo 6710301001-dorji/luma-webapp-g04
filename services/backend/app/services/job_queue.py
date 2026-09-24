@@ -9,12 +9,15 @@ ai-engine ไม่ต้องเปลี่ยน: worker เรียก POS
 
 กติกา
 - worker ตัวเดียว ทำทีละงาน เก่าสุดก่อน (GPU ทำได้ทีละภาพอยู่แล้ว)
-- จองงานด้วย UPDATE ... WHERE status='pending' — รันหลายโปรเซสก็ไม่หยิบงานซ้ำกัน
+- จองงานด้วย UPDATE ... WHERE status='pending' — สองโปรเซสจองงาน pending เดียวกันไม่ได้
 - ไม่ retry เอง: Forge ล้ม -> failed พร้อมเหตุผล ผู้ใช้กดใหม่เอง
-- โปรเซสดับระหว่าง running -> เปิดใหม่ recover_interrupted() คืนเป็น pending
+- โปรเซสดับระหว่าง running -> recover_interrupted() คืนเป็น pending เฉพาะงานที่เงียบนานเกิน
+  JOB_STALE_AFTER_SECONDS เท่านั้น (ถ้าคืนทุกแถวที่ running จะไปแย่งงานของโปรเซสอื่น
+  ที่ยังทำอยู่ แล้วภาพเดียวถูกสร้างสองครั้ง)
 """
 
 import threading
+from datetime import timedelta
 
 from flask import current_app
 from sqlalchemy import select, update
@@ -92,9 +95,31 @@ def process_available() -> int:
     return count
 
 
+def _stale_after_seconds() -> int:
+    """งาน running ที่ไม่ขยับนานเกินเท่านี้ = โปรเซสที่จองไว้ตายไปแล้ว
+
+    หนึ่งงานใช้เวลาไม่เกิน FORGE_TIMEOUT_SECONDS (backend ตัดสายเอง) บวกเวลาบันทึกฐาน
+    เผื่อไว้สองเท่าเพื่อไม่ไปแตะงานที่โปรเซสอื่นยังทำอยู่จริง
+    """
+    config = current_app.config
+    return config.get("JOB_STALE_AFTER_SECONDS", config.get("FORGE_TIMEOUT_SECONDS", 120) * 2)
+
+
 def recover_interrupted() -> int:
-    """งานที่ค้าง running จากโปรเซสก่อนหน้า (ดับกลางทาง) กลับไปเป็น pending"""
-    reset = db.session.execute(update(Job).where(Job.status == "running").values(status="pending", updated_at=utcnow()))
+    """คืนงานที่ค้าง running จากโปรเซสที่ตายไปแล้ว กลับเป็น pending
+
+    ห้ามคืน "ทุกแถวที่ running" เพราะ worker ของอีกโปรเซสอาจกำลังทำงานนั้นอยู่จริง
+    แล้วงานเดียวจะถูกสร้างภาพสองครั้ง (asset เกินมา + เปลือง GPU) — ทดสอบแล้วเกิดจริง
+    ตัดสินจาก updated_at ที่ claim_next() ประทับไว้ตอนจองงาน
+
+    updated_at ในฐานเป็นเวลา UTC แบบไม่มี tzinfo (SQLite ตัด offset ทิ้ง — ดู asset.utcnow)
+    จึงต้องเทียบกับ utcnow() ที่ replace(tzinfo=None) แล้วเท่านั้น
+    """
+    cutoff = utcnow().replace(tzinfo=None) - timedelta(seconds=_stale_after_seconds())
+    reset = db.session.execute(
+        update(Job).where(Job.status == "running", Job.updated_at < cutoff)
+        .values(status="pending", updated_at=utcnow())
+    )
     db.session.commit()
     return reset.rowcount
 
@@ -107,13 +132,14 @@ def start_worker(app, poll_seconds: float = 1.0):
     stop_event = threading.Event()
 
     def loop():
-        with app.app_context():
-            recovered = recover_interrupted()
-            if recovered:
-                app.logger.warning("คืนงานที่ค้าง running %s งานกลับเข้าคิว", recovered)
         while not stop_event.is_set():
             try:
                 with app.app_context():
+                    # กวาดทุกรอบ ไม่ใช่ครั้งเดียวตอนเริ่ม — โปรเซสที่เพิ่งตายไปไม่กี่วินาที
+                    # ยังไม่ถึงเกณฑ์ stale ถ้าเช็คแค่ตอนเริ่มงานนั้นจะค้าง running ตลอดไป
+                    recovered = recover_interrupted()
+                    if recovered:
+                        app.logger.warning("คืนงานที่ค้าง running %s งานกลับเข้าคิว", recovered)
                     process_available()
             except Exception:
                 app.logger.error("job worker: รอบนี้ล้มเหลว จะลองใหม่รอบหน้า", exc_info=True)

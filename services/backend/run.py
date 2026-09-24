@@ -25,7 +25,7 @@ if __name__ == "__main__":
         )
 
     # worker ของคิวสร้างภาพ (#21) — debug reloader มีสองโปรเซส (ตัวคุม + ตัวเสิร์ฟ)
-    # เริ่มเฉพาะตัวที่เสิร์ฟจริง ไม่งั้นมี worker สองตัว (ไม่พังเพราะจองงานแบบ atomic แต่เปลืองเปล่าๆ)
+    # เริ่มเฉพาะตัวที่เสิร์ฟจริง ไม่งั้นมี worker สองตัวแย่งคิวกันโดยไม่จำเป็น
     if not debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
         start_worker(app)
 

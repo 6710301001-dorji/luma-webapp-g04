@@ -14,6 +14,7 @@ worker ในระบบจริงเป็น thread (start_worker) — test
 import os
 import sys
 import threading
+from datetime import timedelta
 from unittest.mock import patch
 
 import pytest
@@ -24,6 +25,7 @@ if BASE_DIR not in sys.path:
 
 from app import create_app
 from app.models import Asset, Job, db
+from app.models.asset import utcnow
 from app.services import job_queue
 from app.services.forge_client import ForgeClientError
 
@@ -163,16 +165,71 @@ def test_a_pending_job_can_be_claimed_only_once(app, client):
     assert first is not None and second is None
 
 
+def _age_running_job(app, job_id, seconds):
+    """ย้อน updated_at ของงานให้เก่าลง = จำลองว่าโปรเซสที่จองงานไว้ตายไปเมื่อ N วินาทีก่อน"""
+    with app.app_context():
+        job = db.session.get(Job, job_id)
+        job.updated_at = utcnow().replace(tzinfo=None) - timedelta(seconds=seconds)
+        db.session.commit()
+
+
 def test_restart_puts_interrupted_jobs_back_in_the_queue(app, client):
     """backend ดับระหว่าง running -> เปิดใหม่ต้องคืนเป็น pending แล้วทำต่อได้ ไม่ค้าง"""
     job_id = client.post("/api/generate", json={"prompt": "cat"}).get_json()["job_id"]
     with app.app_context():
         assert job_queue.claim_next() == job_id  # จำลองว่ากำลังทำอยู่แล้วโปรเซสดับ
+    _age_running_job(app, job_id, 10_000)
+    with app.app_context():
         assert job_queue.recover_interrupted() == 1
         assert db.session.get(Job, job_id).status == "pending"
     with patch("app.services.job_queue.generate_image", return_value=("uploads/generated/x.png", 1)):
         _process(app)
     assert client.get(f"/api/jobs/{job_id}").get_json()["status"] == "done"
+
+
+def test_recovery_leaves_a_job_that_another_worker_is_still_running(app, client):
+    """งานที่เพิ่งถูกจองไปเมื่อกี้ = อีกโปรเซสกำลังทำอยู่ ห้ามดึงกลับเข้าคิว"""
+    job_id = client.post("/api/generate", json={"prompt": "cat"}).get_json()["job_id"]
+    with app.app_context():
+        assert job_queue.claim_next() == job_id
+        assert job_queue.recover_interrupted() == 0
+        assert db.session.get(Job, job_id).status == "running"
+
+
+def test_a_second_worker_does_not_redo_a_job_that_is_still_running(app, client):
+    """เปิด worker ตัวที่สองระหว่างตัวแรกกำลังสร้างภาพ -> ต้องไม่สร้างภาพเดียวกันซ้ำ
+
+    เคสจริงจาก @boss2912 (#147): recover_interrupted() เดิมคืน "ทุกแถวที่ running"
+    ตัวที่สองจึงดึงงานของตัวแรกกลับเข้าคิวแล้วทำซ้ำ ได้ asset สองใบจากงานเดียว
+    """
+    client.post("/api/generate", json={"prompt": "หนึ่งงานเท่านั้น"})
+    calls = []
+    first_call_started = threading.Event()
+    lock = threading.Lock()
+
+    def slow_generate(**kwargs):
+        with lock:
+            calls.append(1)
+            count = len(calls)
+        first_call_started.set()
+        threading.Event().wait(2)  # จำลอง GPU ที่ใช้เวลาสร้างภาพ
+        return f"uploads/generated/dup{count}.png", count
+
+    with patch("app.services.job_queue.generate_image", side_effect=slow_generate):
+        stop_first = job_queue.start_worker(app, poll_seconds=0.05)
+        try:
+            assert first_call_started.wait(5), "worker ตัวแรกไม่เริ่มงานภายใน 5 วินาที"
+            stop_second = job_queue.start_worker(app, poll_seconds=0.05)  # โปรเซสที่สองเปิดตอนนี้
+            try:
+                threading.Event().wait(3)
+            finally:
+                stop_second()
+        finally:
+            stop_first()
+
+    assert len(calls) == 1, f"สร้างภาพซ้ำ {len(calls)} ครั้งจากงานเดียว"
+    with app.app_context():
+        assert Asset.query.count() == 1
 
 
 def test_job_status_is_private(app, client):
