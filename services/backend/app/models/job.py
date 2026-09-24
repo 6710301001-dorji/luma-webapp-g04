@@ -1,7 +1,7 @@
 """ตาราง jobs — คิวงานสร้างภาพ (issue #21 / #16)
 
-⚠️ ร่างเสนอจากคนที่ 1 ให้คนที่ 2 รีวิว — migration ยังไม่มี (เป็นงานของคนที่ 2 ใน
-services/database/migrations/) คอลัมน์ตามที่เสนอไว้ใน #21
+ตารางจริงสร้างด้วย Alembic migration ใน services/database/migrations/
+คอลัมน์ตามที่ตกลงไว้ใน #21 และ #16
 
 วงจรของ status: pending -> running -> done | failed
     pending  รอ worker หยิบ
@@ -17,7 +17,13 @@ from app.models.asset import utcnow
 class Job(db.Model):
     __tablename__ = "jobs"
     # worker หยิบ "pending ที่เก่าที่สุด" ทุกครั้ง — index ผสมให้ไม่ต้องไล่ทั้งตาราง
-    __table_args__ = (db.Index("ix_jobs_status_created_at", "status", "created_at"),)
+    __table_args__ = (
+        db.Index("ix_jobs_status_created_at", "status", "created_at"),
+        db.CheckConstraint(
+            "status IN ('pending', 'running', 'done', 'failed')",
+            name="ck_jobs_status",
+        ),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(
