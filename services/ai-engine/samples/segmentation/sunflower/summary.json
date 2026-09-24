@@ -1,0 +1,53 @@
+{
+  "dataset": "PhotoArt50 204.sunflower",
+  "source_repository": "https://github.com/BathVisArtData/PhotoArt50",
+  "ground_truth_source": "https://github.com/boss2912/Image-processing-workshop_1",
+  "source_images_committed": false,
+  "cases": [
+    {
+      "id": "204p_0001",
+      "background": "dark background"
+    },
+    {
+      "id": "204p_0009",
+      "background": "green foliage"
+    },
+    {
+      "id": "204p_0020",
+      "background": "blue background"
+    },
+    {
+      "id": "204p_0033",
+      "background": "gray background"
+    },
+    {
+      "id": "204p_0043",
+      "background": "faded gray background"
+    }
+  ],
+  "parameters": {
+    "center_degrees": 50,
+    "tolerance_degrees": 20,
+    "saturation_min": 60,
+    "value_min": 40,
+    "kernel_size": 3
+  },
+  "summary": {
+    "case_count": 5,
+    "macro_iou": 0.7132788243931059,
+    "macro_precision": 0.9170514033021343,
+    "macro_recall": 0.7667088556331999,
+    "micro_iou": 0.7268931181241468,
+    "micro_precision": 0.9076790985378815,
+    "micro_recall": 0.7849249662632711,
+    "true_positive": 144832,
+    "false_positive": 14731,
+    "false_negative": 39685,
+    "true_negative": 173352
+  },
+  "metric_explanations": {
+    "iou": "IoU measures overlap between the predicted and hand-drawn object regions.",
+    "precision": "Precision is the share of selected pixels that truly belong to the object.",
+    "recall": "Recall is the share of hand-drawn object pixels found by the segmentation."
+  }
+}

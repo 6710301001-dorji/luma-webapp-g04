@@ -2,6 +2,7 @@
 
 import csv
 import importlib.util
+import json
 from pathlib import Path
 
 import cv2
@@ -66,6 +67,35 @@ def test_five_ground_truth_fixtures_are_binary_and_evaluable():
     assert len({round(row["iou"], 4) for row in rows}) > 1
 
 
+def test_committed_sunflower_report_matches_masks_and_summary():
+    report_root = SAMPLES / "sunflower"
+    cases = {}
+    for case in ("204p_0001", "204p_0009", "204p_0020", "204p_0033", "204p_0043"):
+        truth = cv2.imread(str(report_root / "ground_truth" / f"{case}.png"), cv2.IMREAD_GRAYSCALE)
+        prediction = cv2.imread(str(report_root / "predictions" / f"{case}.png"), cv2.IMREAD_GRAYSCALE)
+        assert truth is not None and prediction is not None
+        assert truth.shape == prediction.shape
+        assert set(np.unique(truth)).issubset({0, 255})
+        assert set(np.unique(prediction)).issubset({0, 255})
+        cases[case] = (truth, prediction)
+
+    calculated = {row["case"]: row for row in segmentation_metrics.evaluate_cases(cases)}
+    with (report_root / "metrics.csv").open(newline="", encoding="utf-8") as source:
+        saved = {row["case"]: row for row in csv.DictReader(source)}
+    assert saved.keys() == calculated.keys()
+    for case, row in calculated.items():
+        for metric in ("iou", "precision", "recall"):
+            assert float(saved[case][metric]) == pytest.approx(row[metric])
+        for count in ("true_positive", "false_positive", "false_negative", "true_negative"):
+            assert int(saved[case][count]) == row[count]
+
+    summary = json.loads((report_root / "summary.json").read_text(encoding="utf-8"))["summary"]
+    assert summary["case_count"] == 5
+    assert summary["macro_iou"] == pytest.approx(np.mean([row["iou"] for row in calculated.values()]))
+    assert summary["true_positive"] == sum(row["true_positive"] for row in calculated.values())
+    assert not list(report_root.rglob("*.jpg"))
+
+
 def test_metric_explanations_cover_all_scores():
     explanations = segmentation_metrics.explain_metrics({"iou": 0.8, "precision": 0.9, "recall": 0.7})
     assert set(explanations) == {"iou", "precision", "recall"}
@@ -94,4 +124,3 @@ def test_invalid_masks_are_rejected(prediction):
     truth = np.zeros((5, 5), dtype=np.uint8)
     with pytest.raises(ValueError):
         segmentation_metrics.segmentation_quality(truth, prediction)
-
