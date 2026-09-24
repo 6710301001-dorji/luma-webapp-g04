@@ -34,7 +34,7 @@ REVISION_NOCASE = "c1a7f5d9e204"
 def _make_app(tmp_path, stop_at=None):
     """สร้าง app ที่ชี้ไฟล์ .db ชั่วคราว แล้ว upgrade ขึ้นไปถึง revision ที่ระบุ
 
-    stop_at=None  -> ขึ้นถึง head (มี NOCASE แล้ว)
+    stop_at=None  -> ขึ้นถึง revision ของ #119 (มี NOCASE แล้ว)
     stop_at="..."  -> หยุดที่ revision นั้น (ใช้จำลองฐานของเครื่องที่ยังไม่ upgrade)
     """
     db_file = tmp_path / "test_nocase.db"
@@ -45,7 +45,7 @@ def _make_app(tmp_path, stop_at=None):
     application = create_migration_app()
     with application.app_context():
         if stop_at is None:
-            upgrade()
+            upgrade(revision=REVISION_NOCASE)
         else:
             upgrade(revision=stop_at)
     return application
@@ -276,7 +276,7 @@ def test_upgrade_fails_without_touching_data_when_users_collide(app_before_nocas
         sql_before = _users_table_sql(db)
 
         with pytest.raises(SystemExit) as err:
-            upgrade()
+            upgrade(revision=REVISION_NOCASE)
 
         assert err.value.code == 1
 
@@ -305,7 +305,7 @@ def test_upgrade_succeeds_when_no_collision(app_before_nocase):
         _insert_user(db, "boss", "boss@example.com")
         _insert_user(db, "jet", "jet@example.com")
 
-        upgrade()
+        upgrade(revision=REVISION_NOCASE)
 
         db.session.rollback()
         assert db.session.execute(text("SELECT COUNT(*) FROM users")).scalar() == 2
@@ -330,7 +330,7 @@ def test_upgrade_preserves_assets_owned_by_users(app_before_nocase):
         assert db.session.execute(text("PRAGMA foreign_keys")).scalar() == 1
         assert db.session.execute(text("SELECT COUNT(*) FROM assets")).scalar() == 1
 
-        upgrade()
+        upgrade(revision=REVISION_NOCASE)
 
         db.session.rollback()
         assert db.session.execute(text("PRAGMA foreign_keys")).scalar() == 1
@@ -396,7 +396,7 @@ def test_downgrade_then_upgrade_is_reversible(app):
         db.session.rollback()
         assert "NOCASE" not in _users_table_sql(db)
 
-        upgrade()
+        upgrade(revision=REVISION_NOCASE)
         db.session.rollback()
 
         sql_after = _users_table_sql(db)
