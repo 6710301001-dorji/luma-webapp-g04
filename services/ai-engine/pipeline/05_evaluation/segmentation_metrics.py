@@ -84,7 +84,6 @@ def write_csv(rows, output_path):
         if not isinstance(row, dict) or any(column not in row or row[column] is None for column in columns):
             raise ValueError("every row must contain every segmentation metric")
     with open(output_path, "w", newline="", encoding="utf-8") as output:
-        writer = csv.DictWriter(output, fieldnames=columns)
+        writer = csv.DictWriter(output, fieldnames=columns, lineterminator="\n")
         writer.writeheader()
         writer.writerows({column: row[column] for column in columns} for row in rows)
-
