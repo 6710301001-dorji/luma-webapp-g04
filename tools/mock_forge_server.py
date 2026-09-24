@@ -232,6 +232,7 @@ def handle_txt2img(body: dict) -> tuple[int, dict]:
 
 
 def handle_img2img(body: dict) -> tuple[int, dict]:
+    """Handle LUMA's project endpoint, which uses singular init_image."""
     init = body.get("init_image")
     if not isinstance(init, str) or not init:
         return bad_request("img2img ต้องมี init_image เป็น base64")
@@ -261,6 +262,45 @@ def handle_img2img(body: dict) -> tuple[int, dict]:
         "denoising_strength": body.get("denoising_strength", 0.7),
         "mode": mode,
         "info": "[mock] img2img",
+    }
+
+
+def handle_forge_img2img(body: dict) -> tuple[int, dict]:
+    """Handle Forge's /sdapi/v1/img2img contract with init_images."""
+    init_images = body.get("init_images")
+    if (
+        not isinstance(init_images, list)
+        or not init_images
+        or any(not isinstance(image, str) or not image for image in init_images)
+    ):
+        return bad_request("Forge img2img ต้องมี init_images เป็นรายการ base64")
+    for image in init_images:
+        try:
+            base64.b64decode(image, validate=True)
+        except (binascii.Error, ValueError):
+            return bad_request("init_images มี base64 ที่ไม่ถูกต้อง")
+
+    mask = body.get("mask")
+    if mask is not None:
+        if not isinstance(mask, str) or not mask:
+            return bad_request("mask ต้องเป็น base64")
+        try:
+            base64.b64decode(mask, validate=True)
+        except (binascii.Error, ValueError):
+            return bad_request("mask ไม่ใช่ base64 ที่ถูกต้อง")
+
+    err = validate_common(body)
+    if err:
+        return err
+
+    seed = resolve_seed(body)
+    width = int(body.get("width", 512))
+    height = int(body.get("height", 512))
+    return 200, {
+        "images": [png_b64(width, height, seed)],
+        "seed_used": seed,
+        "denoising_strength": body.get("denoising_strength", 0.7),
+        "info": "[mock] Forge-compatible img2img",
     }
 
 
@@ -370,7 +410,8 @@ class MockForgeHandler(BaseHTTPRequestHandler):
                 "warning": "นี่คือ Forge ปลอม ห้ามใช้ทำภาพส่งงาน",
                 "endpoints": ["/forge/txt2img", "/forge/img2img",
                               "/pipeline/<stage>/<operation>",
-                              "/sdapi/v1/txt2img", "/sdapi/v1/samplers"],
+                              "/sdapi/v1/txt2img", "/sdapi/v1/img2img",
+                              "/sdapi/v1/samplers"],
             })
         elif path == "/sdapi/v1/samplers":
             self.send_json(200, [{"name": s, "aliases": []} for s in SAMPLERS])
@@ -395,8 +436,10 @@ class MockForgeHandler(BaseHTTPRequestHandler):
 
         if path in ("/forge/txt2img", "/sdapi/v1/txt2img"):
             status, payload = handle_txt2img(body)
-        elif path in ("/forge/img2img", "/sdapi/v1/img2img"):
+        elif path == "/forge/img2img":
             status, payload = handle_img2img(body)
+        elif path == "/sdapi/v1/img2img":
+            status, payload = handle_forge_img2img(body)
         elif path.startswith("/pipeline/"):
             parts = path.strip("/").split("/")
             if len(parts) != 3:

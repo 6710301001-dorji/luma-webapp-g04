@@ -225,6 +225,10 @@ AI_ENGINE_URL = "http://127.0.0.1:7860"
 - `mode: "inpaint"` แต่ไม่ส่ง `mask` → 400 (Forge จริงจะคืนภาพเดิมเฉยๆ ซึ่งดีบั๊กยาก)
 - คืน `seed_used` **ทุกครั้ง** เพื่อให้ทำผลลัพธ์ซ้ำได้
 
+`/forge/img2img` ใช้ contract ของโปรเจกต์ (`init_image` หนึ่งภาพและ `mode`)
+ส่วน alias `/sdapi/v1/img2img` ใช้ contract ของ Forge จริง (`init_images`
+เป็นรายการ) เพื่อให้ทดสอบ bridge ของ ai-engine แบบ end-to-end ได้
+
 **โหมดจำลองความพัง** — ทดสอบทางที่พังได้ ซึ่ง Forge จริงสั่งไม่ได้:
 
 | flag | จำลองอะไร | backend ควรตอบ |
