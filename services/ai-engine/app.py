@@ -35,6 +35,35 @@ LEGACY_KARRAS_SAMPLERS = {
     "DPM++ 2M SDE Karras": "DPM++ 2M SDE",
 }
 extract_palette = import_module("pipeline.04_features.color_palette").extract_palette
+spatial_filters = import_module("pipeline.02_enhancement.spatial_filters")
+segmentation = import_module("pipeline.03_segmentation.segmentation")
+
+
+def _decode_bgr_image(image_b64):
+    """Decode plain base64 image data into a uint8 BGR array."""
+    if not isinstance(image_b64, str) or not image_b64:
+        raise ValueError("image must be a nonempty base64 string")
+    try:
+        image_bytes = base64.b64decode(image_b64, validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise ValueError("image must be valid base64") from exc
+    try:
+        pixels = cv2.imdecode(
+            np.frombuffer(image_bytes, dtype=np.uint8), cv2.IMREAD_COLOR
+        )
+    except cv2.error:
+        pixels = None
+    if pixels is None:
+        raise ValueError("image must contain a supported image")
+    return pixels
+
+
+def _encode_png(image):
+    """Encode an OpenCV image as plain base64 PNG data."""
+    encoded, png = cv2.imencode(".png", image)
+    if not encoded:
+        raise ValueError("processed image could not be encoded")
+    return base64.b64encode(png.tobytes()).decode("ascii")
 
 
 def create_app(config=None):
@@ -57,28 +86,138 @@ def create_app(config=None):
             return jsonify({"error": "Expected a JSON object"}), 400
         image_b64 = data.get("image")
         params = data.get("params", {})
-        if not isinstance(image_b64, str) or not image_b64:
-            return jsonify({"error": "image must be a nonempty base64 string"}), 400
         if not isinstance(params, dict):
             return jsonify({"error": "params must be a JSON object"}), 400
         colors = params.get("colors", 5)
         if isinstance(colors, bool) or not isinstance(colors, int) or not 1 <= colors <= 5:
             return jsonify({"error": "colors must be an integer from 1 to 5"}), 400
         try:
-            image_bytes = base64.b64decode(image_b64, validate=True)
-        except (ValueError, binascii.Error):
-            return jsonify({"error": "image must be valid base64"}), 400
-        try:
-            pixels = cv2.imdecode(np.frombuffer(image_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
-        except cv2.error:
-            pixels = None
-        if pixels is None:
-            return jsonify({"error": "image must contain a supported image"}), 400
+            pixels = _decode_bgr_image(image_b64)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
 
         palette = extract_palette(pixels, colors=colors)
         return jsonify({
             "image": image_b64,
             "metrics": {"color_palette": [entry["hex"] for entry in palette]},
+        })
+
+    @app.post("/pipeline/02_enhancement/blur")
+    def blur_region():
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({"error": "Expected a JSON object"}), 400
+        params = data.get("params", {})
+        if not isinstance(params, dict):
+            return jsonify({"error": "params must be a JSON object"}), 400
+        try:
+            pixels = _decode_bgr_image(data.get("image"))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        region = params.get("region")
+        required = ("x", "y", "width", "height")
+        if not isinstance(region, dict) or any(name not in region for name in required):
+            return jsonify({"error": "region must contain x, y, width, and height"}), 400
+        if any(isinstance(region[name], bool) or not isinstance(region[name], int)
+               for name in required):
+            return jsonify({"error": "region values must be integers"}), 400
+
+        x, y = region["x"], region["y"]
+        width, height = region["width"], region["height"]
+        if x < 0 or y < 0 or width < 1 or height < 1:
+            return jsonify({"error": "region coordinates and size are out of range"}), 400
+        image_height, image_width = pixels.shape[:2]
+        if x + width > image_width or y + height > image_height:
+            return jsonify({"error": "region must stay within the image bounds"}), 400
+
+        size = params.get("size", 15)
+        if (isinstance(size, bool) or not isinstance(size, int)
+                or not 3 <= size <= 99 or size % 2 == 0):
+            return jsonify({"error": "size must be an odd integer from 3 to 99"}), 400
+
+        result = pixels.copy()
+        patch = pixels[y:y + height, x:x + width]
+        try:
+            result[y:y + height, x:x + width] = spatial_filters.gaussian(
+                patch, size=size, sigma=0
+            )
+            result_b64 = _encode_png(result)
+        except (ValueError, cv2.error) as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify({
+            "image": result_b64,
+            "metrics": {
+                "mean": float(np.mean(result)),
+                "variance": float(np.var(result)),
+            },
+            "stage": "02_enhancement",
+            "operation": "blur",
+        })
+
+    @app.post("/pipeline/03_segmentation/contours")
+    def find_contours():
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({"error": "Expected a JSON object"}), 400
+        params = data.get("params", {})
+        if not isinstance(params, dict):
+            return jsonify({"error": "params must be a JSON object"}), 400
+        try:
+            pixels = _decode_bgr_image(data.get("image"))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        center = params.get("center_degrees", 50)
+        tolerance = params.get("tolerance_degrees", 20)
+        saturation = params.get("saturation_min", 60)
+        value = params.get("value_min", 40)
+        kernel = params.get("kernel_size", 3)
+        minimum_area = params.get("minimum_area", 200)
+
+        for name, number, low, high in (
+            ("center_degrees", center, 0, 360),
+            ("tolerance_degrees", tolerance, 0, 180),
+        ):
+            if (isinstance(number, bool) or not isinstance(number, (int, float))
+                    or not math.isfinite(number) or number < low
+                    or (number >= high if name == "center_degrees" else number > high)):
+                return jsonify({"error": f"{name} is out of range"}), 400
+        for name, number in (("saturation_min", saturation), ("value_min", value)):
+            if isinstance(number, bool) or not isinstance(number, int) or not 0 <= number <= 255:
+                return jsonify({"error": f"{name} must be an integer from 0 to 255"}), 400
+        if (isinstance(kernel, bool) or not isinstance(kernel, int)
+                or not 3 <= kernel <= 31 or kernel % 2 == 0):
+            return jsonify({"error": "kernel_size must be an odd integer from 3 to 31"}), 400
+        if (isinstance(minimum_area, bool)
+                or not isinstance(minimum_area, (int, float))
+                or not math.isfinite(minimum_area) or minimum_area < 0):
+            return jsonify({"error": "minimum_area must be a finite nonnegative number"}), 400
+
+        try:
+            mask = segmentation.selective_color_mask(
+                pixels, center, tolerance, saturation, value
+            )
+            mask = segmentation.clean_mask(mask, kernel_size=kernel)
+            detected = segmentation.find_objects(mask, minimum_area=minimum_area)
+        except (ValueError, cv2.error) as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        objects = []
+        for item in detected:
+            box = item["bounding_box"]
+            objects.append({
+                "x": int(box["x"]),
+                "y": int(box["y"]),
+                "width": int(box["width"]),
+                "height": int(box["height"]),
+                "area": float(item["area"]),
+            })
+        return jsonify({
+            "objects": objects,
+            "metrics": {"object_count": len(objects)},
+            "stage": "03_segmentation",
+            "operation": "contours",
         })
 
     @app.post("/forge/txt2img")
