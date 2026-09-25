@@ -1,0 +1,17 @@
+{
+  "recorded_at_utc": "2026-09-25T09:16:43.775643+00:00",
+  "backend_url": "http://127.0.0.1:5000",
+  "ai_url": "http://127.0.0.1:8000",
+  "batches": 3,
+  "jobs_per_batch": 5,
+  "poll_interval_s": 0.25,
+  "timeout_s": 300.0,
+  "steps": 20,
+  "image_size_px": [
+    512,
+    512
+  ],
+  "machine": "macOS-27.0-arm64-arm-64bit",
+  "python": "3.12.0",
+  "interpretation": "Synchronous latency measures direct AI-engine response time; queued submission measures time until backend returns HTTP 202. Completion time remains bounded by the single worker and Forge processing time."
+}

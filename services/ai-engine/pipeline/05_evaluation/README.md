@@ -60,13 +60,27 @@ separable 1D passes on the same deterministic 1024 × 1024 grayscale image.
 The script saves a CSV, labeled PNG graph, and machine metadata. The committed
 sample in `samples/benchmark/` is one run on a Mac; times vary by hardware.
 
-When real Forge is available **before the job queue is deployed**, run the same
-script with `--ai-url http://127.0.0.1:8000`. It then times three generation
-step counts and two simultaneous users over HTTP and saves p50/p95 values and
-a labeled graph. Record the Forge machine, model, and sampler beside those
-results. Mock Forge timings are useful for checking the script but are not
-evidence of real generation performance. The after-queue comparison must
-measure from job submission through `done`, including polling time.
+To reproduce the queue comparison, start mock Forge with a fixed delay, the AI
+engine, and the backend, then run three batches of five simultaneous jobs:
+
+```bash
+python services/ai-engine/pipeline/05_evaluation/benchmark_baseline.py \
+  --output services/ai-engine/samples/benchmark \
+  --ai-url http://127.0.0.1:8000 \
+  --backend-url http://127.0.0.1:5000 \
+  --batches 3 --jobs-per-batch 5
+```
+
+The script compares the synchronous AI response with the backend's immediate
+queued `202`, polls each job through `done`, and saves raw trials, p50/p95
+tables, metadata, and a labeled graph. Use the same mock delay for the two
+paths. Mock timing proves queue behavior but does not prove GPU performance.
+
+When real Forge is available, add `--measure-real-steps`. This separately
+measures generation at 10, 20, and 30 steps and verifies that every response
+contains an image and concrete `seed_used`. Record the Forge machine, model,
+sampler, and scheduler beside the results. Do not present mock timings as
+evidence that more diffusion steps require more GPU time.
 
 - `time.perf_counter()` สำหรับจับเวลาโค้ด
 - `matplotlib` พลอต histogram / กราฟเปรียบเทียบ (Lecture 4 หน้า 28–29
