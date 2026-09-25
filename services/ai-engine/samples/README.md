@@ -48,6 +48,25 @@ The timing fixture is smaller than the existing 1024×1024 baseline under
 The theoretical 15×15 separability operation ratio is 7.5×, while measured runtime
 also depends on OpenCV optimizations and machine overhead.
 
+## System benchmark evidence
+
+The reproducible issue #68 measurements are under [`benchmark/`](benchmark/):
+
+- [`box_filter.csv`](benchmark/box_filter.csv) and
+  [`box_filter.png`](benchmark/box_filter.png) compare direct 2D and separable
+  box convolution on the same deterministic 1024×1024 image.
+- [`queue_comparison_raw.csv`](benchmark/queue_comparison_raw.csv) contains
+  three batches of five simultaneous jobs per path.
+- [`queue_comparison_summary.csv`](benchmark/queue_comparison_summary.csv) and
+  [`queue_comparison.png`](benchmark/queue_comparison.png) report p50/p95 HTTP
+  latency and queued completion time.
+- [`QUEUE_REPORT.md`](benchmark/QUEUE_REPORT.md) records the result,
+  interpretation, and remaining real-Forge measurement.
+
+Queue evidence uses mock Forge with a fixed 10-second delay so both paths receive
+the same deterministic workload. It demonstrates API and worker behavior, not GPU
+generation performance.
+
 Refs #132. These figures address the sample-evidence part only. PR #135 enables
 normal PNG tracking; the shared `tools/check_all.py` evidence gate remains a
 separate follow-up. Do not close #132 until its other requirements are complete.
