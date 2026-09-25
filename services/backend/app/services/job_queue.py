@@ -31,6 +31,7 @@ _wake = threading.Event()
 
 
 def enqueue(user_id: int, prompt: str, params: dict) -> Job:
+    """สร้างแถว jobs สถานะ pending แล้วปลุก worker ให้หยิบไปทำทันที ไม่ต้องรอรอบ poll"""
     job = Job(user_id=user_id, prompt=prompt, params=params, status="pending")
     db.session.add(job)
     db.session.commit()
@@ -56,12 +57,17 @@ def claim_next() -> int | None:
 
 
 def _finish(job: Job, status: str, error: str | None = None) -> None:
+    """ปิดงานด้วยสถานะสุดท้าย done หรือ failed พร้อมเหตุผลถ้าล้ม"""
     job.status = status
     job.error = error
     db.session.commit()
 
 
 def run_job(job_id: int) -> None:
+    """ทำงานหนึ่งงานจนจบ: เรียก ai-engine สร้างภาพ -> บันทึกไฟล์ + แถว assets -> ปิดงาน
+
+    ทุกทางที่ล้มต้องจบที่ _finish(failed) เสมอ ห้ามปล่อยงานค้างสถานะ running (MUST ของ #21)
+    """
     job = db.session.get(Job, job_id)
     try:
         relative_path, seed_used = generate_image(prompt=job.prompt, **job.params)
