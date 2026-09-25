@@ -89,15 +89,22 @@
 > ⚠️ **v1 ตั้ง `cfg_scale` default = 7 ซึ่งต่ำกว่าที่อาจารย์แนะนำ** → v2 ใช้ 8
 > ⚠️ **v1 ไม่รับ `sampler_name` และ `seed` เลย** ทั้งที่เป็นพารามิเตอร์ที่อาจารย์เน้น → v2 ต้องรับ
 
-**ตอบกลับ**
-```json
-{ "status": "success", "asset_id": 42, "image_url": "/api/assets/42/image" }
-```
-
-หรือถ้าใช้ queue (async):
+**ตอบกลับ** — **202** ทันที งานเข้าคิว (#21: backend ถือคิวเอง ai-engine ไม่ต้องเปลี่ยน)
 ```json
 { "status": "queued", "job_id": 17 }
 ```
+input ผิด → 400 ตั้งแต่ตอนนี้ (ไม่มี job เกิดขึ้น) · ไม่ login → 401 · ภาพจริงสร้างโดย worker ทีละงาน เก่าสุดก่อน — ถามผลที่ `GET /api/jobs/<id>`
+
+### `GET /api/jobs/<id>` — สถานะงานสร้างภาพ (#21)
+```json
+{ "job_id": 17, "status": "done", "prompt": "...", "asset_id": 42,
+  "image_url": "/api/assets/42/image", "seed_used": 123456, "error": null }
+```
+- `status`: `pending` (รอคิว) → `running` (กำลังเรียก ai-engine) → `done` | `failed`
+- `done`: มี `asset_id` / `image_url` / `seed_used` · `failed`: มี `error` เป็นข้อความที่แสดงผู้ใช้ได้ (ไม่มีที่อยู่ภายใน)
+- ต้อง login · งานของคนอื่นหรือไม่มี id นี้ → 404
+- ไม่ retry อัตโนมัติ — ล้มแล้วผู้ใช้กดใหม่เอง · backend ดับระหว่าง `running` → เปิดใหม่งานกลับเป็น `pending` แล้วทำต่อ
+- frontend poll ทุก ~1.5 วินาที
 
 **กับดักที่ต้องระวังตอน validate** — `isinstance(True, int)` เป็น `True` ใน Python
 ```python

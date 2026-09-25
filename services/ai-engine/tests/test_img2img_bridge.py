@@ -1,6 +1,7 @@
 """Check LUMA img2img validation and translation to Forge's API."""
 
 import base64
+import importlib.util
 import json
 import sys
 from io import BytesIO
@@ -22,6 +23,14 @@ def _png(width=8, height=8):
 
 SOURCE_IMAGE = _png()
 MASK_IMAGE = _png()
+
+
+def _mock_forge_module():
+    path = Path(__file__).resolve().parents[3] / "tools" / "mock_forge_server.py"
+    spec = importlib.util.spec_from_file_location("mock_forge_server_for_test", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _client():
@@ -57,6 +66,40 @@ def test_text_mode_uses_forge_init_images_and_forwards_strength(monkeypatch):
     assert "init_image" not in sent["body"] and "mode" not in sent["body"]
     assert "mask" not in sent["body"]
     assert sent["timeout"] == 120
+
+
+def test_real_bridge_request_shape_is_accepted_by_mock_forge(monkeypatch):
+    mock_forge = _mock_forge_module()
+
+    class Response:
+        def __init__(self, status, payload):
+            self.status_code = status
+            self.payload = payload
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise requests.HTTPError(response=self)
+
+        def json(self):
+            return self.payload
+
+    def post(url, json, timeout):
+        assert url == "http://forge-host:7860/sdapi/v1/img2img"
+        status, payload = mock_forge.handle_forge_img2img(json)
+        return Response(status, payload)
+
+    monkeypatch.setattr(requests, "post", post)
+    response = _client().post("/forge/img2img", json={
+        "init_image": SOURCE_IMAGE,
+        "prompt": "paint the sky",
+        "mode": "text",
+        "denoising_strength": 0.4,
+        "seed": 321,
+    })
+
+    assert response.status_code == 200
+    assert response.json["seed_used"] == 321
+    assert len(response.json["images"]) == 1
 
 
 @pytest.mark.parametrize("mode", ["inpaint", "inpaint-sketch"])

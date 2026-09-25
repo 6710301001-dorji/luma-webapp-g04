@@ -115,7 +115,11 @@ use project photographs for the final report.
 - `write_csv()` saves a complete per-case table for the report.
 
 Five reproducible fixtures are stored in `../../samples/segmentation/`. They
-exercise the code but do not replace evaluation on final project photographs.
+exercise the code. The `sunflower/` subdirectory supplements them with five
+varied photographs evaluated against masks painted by hand. It includes the
+full metrics table, aggregate confusion matrix, comparison figure, and written
+interpretation required for issue #67. The original PhotoArt50 JPG files are
+excluded because their redistribution is restricted.
 
 ## เชื่อมกับเมธอดในสไลด์
 

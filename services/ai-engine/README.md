@@ -38,10 +38,12 @@ prefix before calling this service. The service validates
 inputs, forwards the source image as Forge's `init_images` list, and returns
 `{"images":["<base64>"],"seed_used":123}`. Invalid input receives 400.
 
-Forge's real `/sdapi/v1/img2img` API uses `init_images`. The current project
-mock accepts `init_image` at that path instead, so bridge tests verify the real
-Forge request shape with a stubbed HTTP response. Visual comparison of low and
-high denoising strengths still requires a running Forge model.
+Forge's real `/sdapi/v1/img2img` API and the matching route in the project mock
+use `init_images`. The project-facing `/forge/img2img` route keeps the simpler
+singular `init_image` contract described above. A bridge regression test sends
+the translated request through the mock's Forge-compatible handler. Visual
+comparison of low and high denoising strengths still requires a running Forge
+model.
 
 ## Smart Canvas palette route
 
