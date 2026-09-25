@@ -54,27 +54,19 @@ def app(tmp_path, monkeypatch):
 def test_filter_by_tags_sql(app):
     """ทดสอบ filter_by_tags.sql: ต้องได้เฉพาะภาพที่มีทั้ง portrait และ anime (8 ภาพ)"""
     from app.models import User, db
+    from sqlalchemy import bindparam
 
-    sql_file = QUERIES_DIR / "filter_by_tags.sql"
-    assert sql_file.is_file()
+    sql_content = (QUERIES_DIR / "filter_by_tags.sql").read_text(encoding="utf-8")
 
     with app.app_context():
         demo_user = User.query.filter_by(username="demo").first()
 
-        # ใน SQLite เมื่อส่ง IN list ผ่าน SQLAlchemy text() ให้เขียน query ด้วย tuple หรือ query โดยตรง
         with db.engine.connect() as conn:
-            query_str = """
-                SELECT a.id, a.prompt
-                FROM assets a
-                JOIN asset_tags at ON a.id = at.asset_id
-                JOIN tags t ON at.tag_id = t.id
-                WHERE a.user_id = :user_id
-                  AND t.name IN ('portrait', 'anime')
-                GROUP BY a.id, a.prompt, a.file_path, a.created_at
-                HAVING COUNT(DISTINCT t.id) = 2
-                ORDER BY a.created_at DESC, a.id DESC;
-            """
-            rows = conn.execute(text(query_str), {"user_id": demo_user.id}).fetchall()
+            stmt = text(sql_content).bindparams(bindparam("tag_names", expanding=True))
+            rows = conn.execute(
+                stmt,
+                {"user_id": demo_user.id, "tag_names": ["portrait", "anime"], "num_tags": 2},
+            ).fetchall()
             assert len(rows) == 8
 
 
