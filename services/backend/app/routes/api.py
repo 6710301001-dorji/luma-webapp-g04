@@ -7,7 +7,7 @@ import os
 import uuid
 
 from flask import Blueprint, current_app, jsonify, request, send_file, session
-from app.models import db, Asset, Job
+from app.models import db, Asset, Job, Tag
 from app.services.forge_client import edit_image, ForgeClientError
 from app.services.job_queue import enqueue
 from app.services.image_input import ALLOWED_SIZES, ImageInputError, decode_image, nearest_size
@@ -231,12 +231,19 @@ def list_assets():
     page = request.args.get("page", 1, type=int)
     per_page = request.args.get("per_page", 20, type=int)
     q = request.args.get("q", "", type=str).strip()
+    tags_param = request.args.get("tags", "", type=str).strip()
 
     query = Asset.query.filter(Asset.user_id == session["user_id"])
     if q:
         # autoescape=True กัน % และ _ ใน q ทำตัวเป็น SQL wildcard เอง
         # (ไม่งั้น q="long_hair" จะ match "longXhair" ด้วย เพราะ _ = ตัวอะไรก็ได้ 1 ตัว)
         query = query.filter(Asset.prompt.icontains(q, autoescape=True))
+
+    if tags_param:
+        # AND intersection ตาม API_CONTRACT ข้อ 2: ต้องมีครบทุก tag ที่ระบุ
+        tag_list = [t.strip() for t in tags_param.split(",") if t.strip()]
+        for tag_name in tag_list:
+            query = query.filter(Asset.tags.any(Tag.name == tag_name))
 
     # tiebreaker ด้วย id — created_at อย่างเดียวชนกันได้ถึงระดับไมโครวินาที
     # เมื่อสร้างหลายแถวพร้อมกัน ทำให้ลำดับไม่คงที่ข้ามหน้า

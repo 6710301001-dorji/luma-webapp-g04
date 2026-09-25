@@ -121,7 +121,7 @@ Query params ที่ต้องรองรับ (สเปก Asset Hub —
 
 | param | ตัวอย่าง | ความหมาย |
 |---|---|---|
-| `tags` | `?tags=portrait,anime` | ต้องมี **ทุก** tag ที่ระบุ |
+| `tags` | `?tags=portrait,anime` | คั่นด้วย comma, ต้องมี **ทุก** tag ที่ระบุ (AND intersection), ไม่พบตอบ 200 items ว่าง |
 | `q` | `?q=sakura` | ค้นในข้อความ prompt |
 | `sort` | `?sort=created_at:desc` | เรียงลำดับ |
 | `page` / `per_page` | `?page=2&per_page=20` | แบ่งหน้า |
@@ -280,7 +280,7 @@ img2img. Response fields remain `images` and `seed_used`.
 | # | ระหว่าง | เรื่อง | สถานะ |
 |---|---|---|---|
 | 1 | คน 1 ↔ คน 2 | ชื่อตาราง/คอลัมน์สุดท้าย | ⬜ |
-| 2 | คน 1 ↔ คน 2 | `GET /api/assets` รับ param อะไร ตอบรูปแบบไหน | ⬜ **ครบแล้ว**: `page`/`per_page`/`q` → `{items, page, per_page, total}` ตรงกับ `gallery.js` · ต้อง login + เห็นเฉพาะของตัวเอง · ภาพของคนอื่นตอบ 404 (#115) · **ยังไม่ครบ**: param `tags` / `sort` ในตารางข้างบน (รอตาราง tags #17/#24) · asset เก่าที่ `user_id` เป็น NULL ถูกซ่อนจากทุกคนแต่ยังไม่ลบ รอตัดสินใจใน #97 |
+| 2 | คน 1 ↔ คน 2 | `GET /api/assets` รับ param อะไร ตอบรูปแบบไหน | ✅ **ตกลงแล้ว (25 ก.ย.)**: `?tags=portrait,anime` คั่นด้วย comma · ความหมายคือ AND (intersection) ต้องมีครบทุก tag ที่ระบุ · ไม่พบภาพตอบ `{items: [], page: 1, per_page: 20, total: 0}` พร้อม 200 · tag ไม่มีในระบบตอบ 200 items ว่าง (ไม่ตอบ 400) · `page`/`per_page`/`q` รองรับแล้ว · ต้อง login + เห็นเฉพาะของตัวเอง (ภาพคนอื่นได้ 404) |
 | 3 | คน 1 ↔ คน 3 | `POST /api/generate` ตอบแบบ sync หรือ queued | ⬜ |
 | 4 | คน 1 ↔ คน 3 | เส้นทาง `/pipeline/<stage>/<operation>` | ⬜ |
 | 5 | **คน 2 ↔ คน 3** | **รูปแบบ auto-tag ที่ `04_features` ส่งให้ Asset Hub** | ⬜ |
