@@ -176,6 +176,57 @@ def test_search_assets_escapes_wildcard_characters(client, app):
     assert data["items"][0]["prompt"] == "long_hair, 1girl"
 
 
+def test_filter_assets_by_tags_and_intersection(client, app):
+    """[กรณีทดสอบ]: กรองภาพด้วย ?tags=portrait,anime ต้องได้เฉพาะภาพที่มีครบทั้งสอง tag (API_CONTRACT ข้อ 2)"""
+    from app.models import Tag
+
+    uid = _login(client, "tags-test@luma.ai", "TagTester")  # no-secret-check
+    with app.app_context():
+        t_portrait = Tag(name="portrait")
+        t_anime = Tag(name="anime")
+        t_landscape = Tag(name="landscape")
+        db.session.add_all([t_portrait, t_anime, t_landscape])
+        db.session.commit()
+
+        a1 = Asset(prompt="kimono girl", file_path="p1.png", user_id=uid)
+        a1.tags.extend([t_portrait, t_anime])
+
+        a2 = Asset(prompt="portrait boy only", file_path="p2.png", user_id=uid)
+        a2.tags.append(t_portrait)
+
+        a3 = Asset(prompt="mountain anime", file_path="p3.png", user_id=uid)
+        a3.tags.extend([t_anime, t_landscape])
+
+        db.session.add_all([a1, a2, a3])
+        db.session.commit()
+
+    # 1. tags=portrait,anime -> ต้องได้เฉพาะ a1 (1 ภาพ)
+    res = client.get("/api/assets?tags=portrait,anime")
+    assert res.status_code == 200
+    data = res.get_json()
+    assert data["total"] == 1
+    assert data["items"][0]["prompt"] == "kimono girl"
+    assert "anime" in data["items"][0]["tags"]
+    assert "portrait" in data["items"][0]["tags"]
+
+    # 2. tags=portrait (เดี่ยว) -> ได้ a1 และ a2 (2 ภาพ)
+    res_single = client.get("/api/assets?tags=portrait")
+    assert res_single.status_code == 200
+    assert res_single.get_json()["total"] == 2
+
+    # 3. case-insensitive (Portrait) -> ยังได้ผลลัพธ์เหมือนเดิม
+    res_case = client.get("/api/assets?tags=Portrait")
+    assert res_case.status_code == 200
+    assert res_case.get_json()["total"] == 2
+
+    # 4. tag ที่ไม่มีในระบบ -> ได้ 200 items: [], total: 0 ไม่ใช่ 400 หรือ 404 (ตามข้อตกลง)
+    res_unknown = client.get("/api/assets?tags=nonexistent")
+    assert res_unknown.status_code == 200
+    data_un = res_unknown.get_json()
+    assert data_un["items"] == []
+    assert data_un["total"] == 0
+
+
 def test_list_assets_empty_returns_empty_items():
     """[กรณีทดสอบ]: ยังไม่มี asset เลย ต้องได้ items ว่าง ไม่ error"""
     from app import create_app

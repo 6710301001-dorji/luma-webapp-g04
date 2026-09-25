@@ -96,6 +96,14 @@ class Asset(db.Model):
         index=True,
     )
 
+    tags = db.relationship(
+        "Tag",
+        secondary="asset_tags",
+        backref=db.backref("assets", lazy="dynamic"),
+        lazy="selectin",
+        order_by="Tag.name",
+    )
+
     def __repr__(self) -> str:
         # ตัด prompt ให้สั้นตอน debug — prompt จริงยาวเป็นย่อหน้า
         head = (self.prompt or "")[:40]
@@ -107,15 +115,13 @@ class Asset(db.Model):
         คนที่ 1 เรียกใช้ตัวนี้ใน route ได้เลย ไม่ต้องประกอบ dict เอง
         — ถ้าคอลัมน์เปลี่ยน จะมีที่แก้ที่เดียว
 
-        ยังไม่มี "tags" ในรอบ skeleton (ตาราง tags ยังไม่ถูกสร้าง)
+        tags คืนเป็น array ของชื่อ tag เรียงตามตัวอักษร
         API_CONTRACT ระบุว่าฟิลด์นี้ต้องเป็น array ไม่ใช่ comma-string
-        จึงคืน [] ไปก่อน ฝั่ง frontend เขียนโค้ดวน array ได้เลยตั้งแต่วันนี้
-        แล้วไม่ต้องแก้อีกตอนตาราง tags มาจริง
         """
         return {
             "id": self.id,
             "prompt": self.prompt,
-            "tags": [],
+            "tags": [t.name for t in self.tags],
             # isoformat() ได้ '2026-08-24T05:53:28.866316' (ไม่มี Z เพราะ SQLite
             # ตัด offset ทิ้ง — ดูคำอธิบายใน utcnow) ตรงกับตัวอย่างใน API_CONTRACT
             "created_at": self.created_at.isoformat() if self.created_at else None,
