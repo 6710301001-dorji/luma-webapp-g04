@@ -75,9 +75,15 @@ scale; a Gaussian-blurred copy should score lower than its sharp original.
 ## Classification / Analysis
 
 เริ่มจากกฎง่ายๆ ที่อธิบายได้ ก่อนจะไปหา machine learning:
-- [ ] เกณฑ์ threshold บน feature (เช่น "ภาพมืด" ถ้า mean < 60)
-- [ ] จัดกลุ่มภาพใน Asset Hub ตามโทนสีเด่น → **auto-tag** ให้คนที่ 2 ใช้ทำ search
+- [x] เกณฑ์ threshold บน feature — `auto_tag.py` ใช้ hue/saturation,
+      grayscale percentile และ aspect ratio โดยไม่ใช้โมเดล
+- [x] จัดกลุ่มภาพใน Asset Hub ตามโทนสีเด่น → `warm`, `cool`,
+      `monochrome` พร้อม tag ความสว่าง contrast และ orientation
 - [ ] ตรวจว่าภาพที่ generate มาเบลอ/เสียหรือไม่ ก่อนเก็บเข้า Asset Hub
+
+`auto_tag.classify(image)` คืน `{"tags": [...], "reasons": {...}}` แบบคงที่
+สำหรับภาพเดิมทุกครั้ง Tag เป็น string แบนสำหรับตาราง many-to-many ของ #17;
+เหตุผลแยกออกมาเพื่ออธิบายกฎในรายงานและไม่เพิ่มคอลัมน์ score ในฐานข้อมูล
 
 > **ประโยชน์ร่วม**: auto-tag จากโมดูลนี้ทำให้ Asset Hub ค้นหาได้จริง
 > ซึ่งเป็นข้อกำหนดใน Lecture 4 หน้า 52 — คุยกับคนที่ 2 เรื่องรูปแบบ tag ที่จะส่งให้

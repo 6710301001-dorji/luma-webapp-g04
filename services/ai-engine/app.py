@@ -37,6 +37,7 @@ LEGACY_KARRAS_SAMPLERS = {
 extract_palette = import_module("pipeline.04_features.color_palette").extract_palette
 spatial_filters = import_module("pipeline.02_enhancement.spatial_filters")
 segmentation = import_module("pipeline.03_segmentation.segmentation")
+classify_image = import_module("pipeline.04_features.auto_tag").classify
 
 
 def _decode_bgr_image(image_b64):
@@ -218,6 +219,28 @@ def create_app(config=None):
             "metrics": {"object_count": len(objects)},
             "stage": "03_segmentation",
             "operation": "contours",
+        })
+
+    @app.post("/pipeline/04_features/auto_tag")
+    def auto_tag():
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({"error": "Expected a JSON object"}), 400
+        params = data.get("params", {})
+        if not isinstance(params, dict):
+            return jsonify({"error": "params must be a JSON object"}), 400
+        try:
+            pixels = _decode_bgr_image(data.get("image"))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        result = classify_image(pixels)
+        return jsonify({
+            "image": data["image"],
+            "metrics": {
+                "auto_tags": result["tags"],
+                "auto_tag_reasons": result["reasons"],
+            },
         })
 
     @app.post("/forge/txt2img")
