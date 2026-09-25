@@ -106,7 +106,16 @@ def create_migration_app() -> Flask:
 app = create_migration_app()
 
 
+def _force_utf8_stdout() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
+
+
 if __name__ == "__main__":
+    _force_utf8_stdout()
     # รันไฟล์นี้ตรงๆ ไม่ได้สร้างตาราง แค่บอกว่าจะไปลงที่ไหน
     # (ตั้งใจให้ไม่ทำอะไร — การสร้างตารางต้องผ่าน flask db upgrade เท่านั้น
     #  ตาม ADR-008 กฎข้อ 2 ห้ามใช้ db.create_all() ซึ่งเป็นบั๊กที่ v1 เจอมาแล้ว)

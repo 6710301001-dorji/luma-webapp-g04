@@ -73,5 +73,6 @@ def _enable_sqlite_foreign_keys(dbapi_connection, connection_record):
 from app.models.asset import Asset  # noqa: E402  (ต้องอยู่หลัง db)
 from app.models.user import User  # noqa: E402
 from app.models.job import Job  # noqa: E402
+from app.models.tag import Tag, asset_tags  # noqa: E402
 
-__all__ = ["db", "Asset", "User", "Job"]
+__all__ = ["db", "Asset", "User", "Job", "Tag", "asset_tags"]
