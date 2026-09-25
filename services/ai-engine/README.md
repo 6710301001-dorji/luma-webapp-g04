@@ -45,7 +45,7 @@ the translated request through the mock's Forge-compatible handler. Visual
 comparison of low and high denoising strengths still requires a running Forge
 model.
 
-## Smart Canvas palette route
+## Pipeline HTTP routes
 
 `POST /pipeline/04_features/color_palette` accepts plain base64 image bytes:
 
@@ -57,6 +57,20 @@ It uses the existing `pipeline/04_features/color_palette.py` extractor and
 returns `{"image":"<base64>","metrics":{"color_palette":["#ff0000"]}}`.
 The backend removes the Data URL prefix sent by the browser before calling this
 route. Invalid images or parameters receive HTTP 400.
+
+The Function page uses two additional routes:
+
+- `POST /pipeline/02_enhancement/blur` blurs only the requested rectangular
+  region. `params.region` contains integer `x`, `y`, `width`, and `height`
+  values in source-image pixels; `params.size` is an odd kernel size from 3
+  to 99.
+- `POST /pipeline/03_segmentation/contours` selects an HSV color range, cleans
+  the mask, and returns bounding boxes sorted from largest to smallest. An
+  image with no matching objects returns HTTP 200 with an empty `objects` list.
+
+All pipeline routes accept plain base64 rather than Data URLs. Invalid images,
+booleans in numeric fields, out-of-range parameters, and regions outside the
+image receive HTTP 400.
 
 When Forge runs on another computer, set `FORGE_URL` to its reachable address
 (for example, `http://192.168.1.30:7860`) before starting this service. `localhost`

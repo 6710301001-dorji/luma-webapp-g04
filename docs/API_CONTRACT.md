@@ -273,6 +273,46 @@ img2img. Response fields remain `images` and `seed_used`.
 
 > `metrics` มีทุก response — ใช้ต่อใน `05_evaluation` และทำให้ตาราง before/after สร้างได้อัตโนมัติ
 
+#### Function page routes (Issue #163)
+
+`POST /pipeline/02_enhancement/blur` เบลอเฉพาะกรอบในพิกัดของภาพต้นฉบับ:
+
+```json
+{
+  "image": "<base64 ไม่มี data: นำหน้า>",
+  "params": {
+    "region": {"x": 120, "y": 80, "width": 200, "height": 150},
+    "size": 15
+  }
+}
+```
+
+ตอบ `image` ที่ขนาดเท่าเดิม พร้อม `metrics.mean` / `metrics.variance`,
+`stage: "02_enhancement"` และ `operation: "blur"` · พิกัดต้องเป็น integer
+ที่ไม่ใช่ bool และกรอบต้องอยู่ภายในภาพ · `size` ต้องเป็นเลขคี่ตั้งแต่ 3 ขึ้นไป
+และไม่เกิน 99
+
+`POST /pipeline/03_segmentation/contours` คืนพิกัดกรอบวัตถุโดยไม่วาดทับภาพ:
+
+```json
+{
+  "image": "<base64>",
+  "params": {
+    "center_degrees": 50,
+    "tolerance_degrees": 20,
+    "saturation_min": 60,
+    "value_min": 40,
+    "kernel_size": 3,
+    "minimum_area": 200
+  }
+}
+```
+
+ตอบ `objects` เป็น array ของ `{x, y, width, height, area}` เรียงพื้นที่มากไปน้อย
+พร้อม `metrics.object_count`, `stage: "03_segmentation"` และ
+`operation: "contours"` · ไม่พบวัตถุให้ตอบ 200 กับ `objects: []` · ค่า input
+ผิด รวมถึง bool ในช่องตัวเลข ให้ตอบ 400 · `kernel_size` ต้องเป็นเลขคี่ 3–31
+
 ---
 
 ## จุดที่ต้องตกลงกันก่อนเขียนโค้ด
