@@ -100,3 +100,6 @@ services/ai-engine/forge/models/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# config ของ Nginx ที่สร้างจากแม่แบบต่อเครื่อง (มี path ของเครื่องนั้นอยู่ข้างใน)
+deploy/nginx/*.local.conf
