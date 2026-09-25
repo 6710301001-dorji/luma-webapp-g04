@@ -79,6 +79,89 @@ python services\backend\run.py
 
 log อยู่ที่ `<โฟลเดอร์ Nginx>\logs\luma.access.log` และ `luma.error.log`
 
+## 4. ถ้า Nginx ล้ม — แผนสำรอง
+
+Nginx เป็นประตูเดียวของระบบ ถ้ามันล้มผู้ใช้เข้าไม่ได้เลย ของจริงเขาแก้ด้วย Nginx หลายตัว
++ load balancer ซึ่งเกินขอบเขตวิชานี้ ที่นี่จึงใช้ **บันได 3 ขั้น** แทน — ซ้อมมาแล้วทั้งสามขั้น
+
+### ขั้นที่ 0 — กันไว้ก่อน (ทำทุกครั้งก่อนเปิด)
+
+```powershell
+& "$nginx\nginx.exe" -p $nginx -c "$here/luma.local.conf" -t
+```
+
+`-t` ตรวจ config โดยไม่เปิดจริง · ล้มบ่อยที่สุดคือ config ผิด และขั้นนี้กันได้ 100%
+เปิดหน้าต่าง `<โฟลเดอร์ Nginx>\logs\luma.error.log` ทิ้งไว้ด้วย จะได้รู้ทันทีถ้ามันล้มกลางทาง
+
+### ขั้นที่ 1 — สลับไปตัวสำรองที่พอร์ต 8081
+
+สร้างไว้ล่วงหน้าตั้งแต่ตอนเตรียมเครื่อง (ใช้ตัวแปรจากข้อ 2)
+
+```powershell
+$conf = Get-Content "$here/luma.local.conf" -Raw
+$standby = $conf.Replace('listen      8080;', 'listen      8081;').Replace('logs/luma.', 'logs/luma-standby.')
+[IO.File]::WriteAllText("$here/luma-standby.local.conf", $standby, (New-Object Text.UTF8Encoding $false))
+```
+
+เปลี่ยนแค่ 2 อย่าง — พอร์ต กับ **ชื่อไฟล์ log** (ถ้าไม่เปลี่ยน สอง instance จะแย่งเขียนไฟล์เดียวกัน)
+ตั้งชื่อลงท้าย `.local.conf` เพื่อให้ `.gitignore` กันไว้อยู่แล้ว
+
+ตอนตัวหลักล้ม:
+
+```powershell
+& "$nginx\nginx.exe" -p $nginx -c "$here/luma-standby.local.conf" -t
+& "$nginx\nginx.exe" -p $nginx -c "$here/luma-standby.local.conf"
+```
+
+แล้วเปลี่ยน URL เป็น <http://127.0.0.1:8081>
+
+### ขั้นที่ 2 — ข้าม Nginx ไปเลย เข้า Flask ตรง
+
+```
+http://<ip ของเครื่อง backend>:5000
+```
+
+Flask เสิร์ฟหน้าเว็บทั้งหมดได้เองอยู่แล้ว (`static_folder` ชี้ไป `services/frontend/`
+มีเทสคุมใน `services/backend/tests/test_frontend_serving.py`) ขั้นนี้คือการถอยกลับไปเป็น V3
+
+### ขั้นที่ 3 — กู้ Nginx
+
+ไฟล์ในโฟลเดอร์ Nginx ไม่เคยถูกเราแก้เลยสักไฟล์ (config ของเราอยู่ใน git แล้วสั่งด้วย `-p` / `-c`)
+โฟลเดอร์เสียจึงแค่แตก zip ใหม่แล้วรันคำสั่งในข้อ 2 อีกรอบ · ถ้าเน็ตช้า ก๊อปโฟลเดอร์ Nginx
+ที่ยังไม่ถูกแตะเก็บไว้ล่วงหน้าได้ (7.6 MB) แต่ต้องเก็บ **นอกโฟลเดอร์โปรเจกต์**
+
+### ผลซ้อมจริง (2026-09-25)
+
+ไล่ใช้งานทุกหน้าในแต่ละขั้น — สมัคร · ล็อกอิน · `/api/auth/me` · สร้างภาพจนเสร็จ · โหลดภาพ ·
+แกลเลอรี · img2img · css/js
+
+| | ขั้น 0 ตัวหลัก :8080 | ขั้น 1 ตัวสำรอง :8081 | ขั้น 2 Flask ตรง :5000 |
+|---|---|---|---|
+| ใช้งานครบทุกหน้า | ✅ | ✅ | ✅ |
+| rate limit หน้า login | 429 | 429 | ❌ **ไม่มี** |
+| body 55 MB | 413 จาก nginx | 413 จาก nginx | 413 แต่เป็นของ backend เอง |
+
+**สองแถวล่างคือสิ่งที่เสียไปตอนข้าม Nginx** — ตัวนับ rate limit ของ Nginx อยู่ใน shared memory
+ข้ามไปแล้วเหลือแต่ตัวนับต่อบัญชีใน Flask (#15 F14) ซึ่งกันคนละแบบกัน · ส่วน body ใหญ่
+Flask **ไม่มี `MAX_CONTENT_LENGTH`** จึงต้องรับครบ 55 MB เข้ามาก่อนแล้วค่อยปฏิเสธที่ชั้นตรวจภาพ
+ต่างจาก Nginx ที่ตัดตั้งแต่ยังไม่ทันรับ
+
+### ประตูหลัง — เลือกเอาอย่าง
+
+ขั้นที่ 2 จะใช้ได้ก็ต่อเมื่อ `:5000` เข้าถึงได้จากเครื่องอื่น ซึ่งแปลว่าด่านทุกอย่างที่ตั้งใน Nginx
+ก็ถูกข้ามได้เหมือนกัน ทางกลางคือเปิดเฉพาะให้เครื่อง Nginx
+
+```powershell
+# ปกติ — รับเฉพาะเครื่องที่รัน Nginx
+New-NetFirewallRule -DisplayName "LUMA backend" -Direction Inbound -LocalPort 5000 -Protocol TCP -RemoteAddress 192.168.1.10 -Action Allow
+
+# ฉุกเฉินตอนเดโม — เปิดให้ทั้งวง
+Set-NetFirewallRule -DisplayName "LUMA backend" -RemoteAddress Any
+```
+
+ถ้า Nginx กับ Flask อยู่เครื่องเดียวกัน ไม่ต้องทำอะไรเลย — ปล่อย `LUMA_HOST` เป็นค่าเริ่มต้น
+`127.0.0.1` เครื่องอื่นก็เรียกไม่ถึงอยู่แล้ว
+
 ## ค่าที่ตั้งไว้ และเหตุผล
 
 | ค่า | ทำไม |
@@ -108,6 +191,6 @@ log อยู่ที่ `<โฟลเดอร์ Nginx>\logs\luma.access.log
 
 ## ข้อจำกัดที่รู้อยู่
 
-- Nginx เสิร์ฟ `services/frontend/` ตรงๆ ส่วน Flask ก็ยังเสิร์ฟไฟล์เดียวกันได้ที่ `:5000` — ตอน deploy จริงควรเข้าผ่าน Nginx ทางเดียว
+- Flask ที่ `:5000` เสิร์ฟหน้าเว็บได้เองด้วย — เป็นทั้ง**ทางหนีตอน Nginx ล้ม** และ**ช่องข้ามด่านของ Nginx** ในเวลาเดียวกัน วิธีจัดการอยู่ในข้อ 4
 - ยังไม่ได้ทำ HTTPS · ใบรับรองสำหรับ LAN ต้องออกเอง (self-signed) ซึ่งอยู่นอกขอบเขต #30
 - Nginx บน Windows ทำงานช้ากว่าบน Linux (ใช้ select ไม่ใช่ epoll) — พอสำหรับเดโม
