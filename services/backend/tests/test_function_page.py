@@ -200,6 +200,7 @@ def test_find_objects_skips_malformed_entries_instead_of_failing():
     {"image": "aGVsbG8=", "center_degrees": True},
     {"image": "aGVsbG8=", "tolerance_degrees": 0},
     {"image": "aGVsbG8=", "kernel_size": 4},        # เลขคู่
+    {"image": "aGVsbG8=", "kernel_size": 1},        # ต่ำกว่าที่ clean_mask() รับ (>=3)
     {"image": "aGVsbG8=", "minimum_area": -1},
     {"image": "aGVsbG8=", "saturation_min": 256},
 ])

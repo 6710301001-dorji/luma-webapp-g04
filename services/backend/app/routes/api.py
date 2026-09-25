@@ -450,7 +450,9 @@ def handle_find_objects():
         "tolerance_degrees": (1, 180, 20),
         "saturation_min": (0, 255, 60),
         "value_min": (0, 255, 40),
-        "kernel_size": (1, 31, 3),
+        # ขั้นต่ำ 3 ให้ตรงกับ clean_mask() ของ pipeline (segmentation.py:68)
+        # ถ้ารับ 1 ผ่านไป ai-engine จะ raise ValueError -> ผู้ใช้เห็น 502 ทั้งที่ค่าตัวเองผิด
+        "kernel_size": (3, 31, 3),
         "minimum_area": (0, 10_000_000, 200),
     }
     params = {}
