@@ -7,7 +7,10 @@ const [scenario, scriptPath] = process.argv.slice(2);
 function el() {
   const handlers = {};
   return {
-    textContent: "", className: "", type: "", disabled: false, attrs: {}, children: [],
+    textContent: "", className: "", type: "", disabled: false, hidden: false,
+    attrs: {}, children: [], dataset: {},
+    classList: { classes: new Set(), add(c) { this.classes.add(c); }, remove(c) { this.classes.delete(c); },
+                 contains(c) { return this.classes.has(c); } },
     set innerHTML(v) { if (v === "") this.children = []; }, get innerHTML() { return ""; },
     setAttribute(k, v) { this.attrs[k] = v; }, removeAttribute(k) { delete this.attrs[k]; },
     appendChild(c) { this.children.push(c); }, addEventListener(t, fn) { handlers[t] = fn; },
@@ -21,7 +24,8 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
 (async () => {
   const nodes = {};
   for (const id of ["gallery-grid", "gallery-search-form", "gallery-search-input", "gallery-prev-btn",
-    "gallery-next-btn", "gallery-page-indicator", "gallery-empty", "gallery-error"]) nodes[id] = el();
+    "gallery-next-btn", "gallery-page-indicator", "gallery-empty", "gallery-error",
+    "gallery-tags", "gallery-clear-btn"]) nodes[id] = el();
 
   const calls = [];
   const alerts = [];
@@ -38,11 +42,15 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
 
   const ctx = {
     window: {
-      location: { origin: "http://luma.test" },
+      // #59 เพิ่ม: gallery.js ซิงก์เงื่อนไขลง URL จึงต้องมี pathname/search/history ให้ครบ
+      location: { origin: "http://luma.test", pathname: "/pages/gallery.html", search: "",
+                  get href() { return this.origin + this.pathname + this.search; } },
       csrfHeaders: () => ({ "X-CSRFToken": "tok" }),
       confirm: () => scenario !== "cancel",
+      addEventListener() {},
+      history: { pushState() {}, replaceState() {} },
     },
-    URL, console: { error() {}, log() {} }, alert: (m) => alerts.push(m), fetch, setTimeout,
+    URL, URLSearchParams, console: { error() {}, log() {} }, alert: (m) => alerts.push(m), fetch, setTimeout,
     document: { readyState: "complete", getElementById: (id) => nodes[id] || null, createElement: () => el() },
   };
   vm.createContext(ctx);

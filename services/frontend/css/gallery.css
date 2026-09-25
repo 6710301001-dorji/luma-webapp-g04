@@ -158,3 +158,58 @@
   border: 1px dashed #ccc;
   margin-top: 1.5rem;
 }
+
+/* ==========================================================================
+   ตัวกรองด้วยแท็ก (Issue #59)
+   ========================================================================== */
+.gallery-tag-filter {
+  margin-top: 0.75rem;
+}
+
+.gallery-tag-filter__label {
+  display: block;
+  margin-bottom: 0.4rem;
+  font-size: 0.85rem;
+  color: #555;
+}
+
+.gallery-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.gallery-tag {
+  padding: 0.3rem 0.7rem;
+  font: inherit;
+  font-size: 0.85rem;
+  color: #374151;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+/* ปุ่มที่เลือกอยู่ต้องต่างจากปุ่มปกติมากพอให้เห็นตอนเหลือบมอง
+   ไม่ใช้สีอย่างเดียว เพราะคนตาบอดสีจะแยกไม่ออก — เพิ่มน้ำหนักตัวอักษรด้วย */
+.gallery-tag.is-active {
+  color: #fff;
+  font-weight: 700;
+  background: #6d28d9;
+  border-color: #6d28d9;
+}
+
+.asset-card__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0 0 0.5rem;
+}
+
+.asset-card__tag {
+  padding: 0.15rem 0.5rem;
+  font-size: 0.75rem;
+  color: #4c1d95;
+  background: #f5f3ff;
+  border-radius: 999px;
+}
