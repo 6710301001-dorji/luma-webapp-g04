@@ -344,7 +344,7 @@ def handle_pipeline(stage: str, op: str, body: dict) -> tuple[int, dict]:
     elif stage == "01_acquisition":
         metrics |= {"width": 512, "height": 512, "channels": 3, "dtype": "uint8"}
 
-    return 200, {
+    payload = {
         "image": png_b64(256, 256, seed),
         "metrics": metrics,
         "stage": stage,
@@ -352,6 +352,26 @@ def handle_pipeline(stage: str, op: str, body: dict) -> tuple[int, dict]:
         "params_echo": body.get("params", {}),
         "info": "[mock] ค่า metrics เป็นค่าสุ่ม ห้ามเอาไปใส่รายงาน",
     }
+
+    # 03_segmentation/contours คืน "พิกัดกรอบ" ไม่ใช่ภาพที่วาดกรอบมาแล้ว (issue #163)
+    # หน้า Function เอาพิกัดไปวาดเองบน canvas ผู้ใช้จึงยังเห็นภาพต้นฉบับ
+    # ไม่เจอวัตถุเลย (count = 0) เป็นคำตอบที่ถูกต้อง ไม่ใช่ error — ต้องทดสอบเคสนี้ได้ด้วย
+    if stage == "03_segmentation" and op == "contours":
+        objects = []
+        for _ in range(rng.randint(0, 3)):
+            width = rng.randint(20, 120)
+            height = rng.randint(20, 120)
+            objects.append({
+                "x": rng.randint(0, 256 - width),
+                "y": rng.randint(0, 256 - height),
+                "width": width,
+                "height": height,
+                "area": float(width * height),
+            })
+        payload["objects"] = objects
+        payload["metrics"] = {"object_count": len(objects)}
+
+    return 200, payload
 
 
 # ---------------------------------------------------------------------------

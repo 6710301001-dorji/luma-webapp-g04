@@ -11,7 +11,8 @@ from app.models import db, Asset, Job
 from app.services.forge_client import edit_image, ForgeClientError
 from app.services.job_queue import enqueue
 from app.services.image_input import ALLOWED_SIZES, ImageInputError, decode_image, nearest_size
-from app.services.ai_engine_client import extract_color_palette, PipelineClientError
+from app.services.ai_engine_client import (
+    blur_region, extract_color_palette, find_objects, PipelineClientError)
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
@@ -354,3 +355,122 @@ def handle_palette_extract():
         return jsonify({"error": "เกิดข้อผิดพลาดในการติดต่อ AI Engine / Internal Server Error"}), 500
 
     return jsonify({"colors": colors}), 200
+
+
+# ==============================================================================
+# หน้า Function (#163) — backend ตรวจ input แล้วส่งต่อ ai-engine ไม่ประมวลผลภาพเอง
+# ==============================================================================
+def _whole_number(value, name, minimum, maximum):
+    """คืน (ค่า, None) ถ้าใช้ได้ · (None, ข้อความ) ถ้าไม่ได้
+
+    ดัก bool แยกจาก int เพราะ isinstance(True, int) เป็น True ใน Python
+    ถ้าไม่ดัก ส่ง {"x": true} มาจะกลายเป็น x = 1 แบบเงียบๆ
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None, f"{name} ต้องเป็นจำนวนเต็ม / {name} must be an integer"
+    if not minimum <= value <= maximum:
+        return None, f"{name} ต้องอยู่ระหว่าง {minimum}-{maximum} / {name} must be {minimum}-{maximum}"
+    return value, None
+
+
+def _image_from_request(data):
+    """ดึงฟิลด์ image ที่ทุก endpoint ของหน้า Function ใช้เหมือนกัน"""
+    if not isinstance(data, dict) or not data:
+        return None, "คำขอต้องเป็น JSON object / Request must be a JSON object"
+    image_b64 = data.get("image")
+    if not isinstance(image_b64, str) or not image_b64.strip():
+        return None, "กรุณาระบุภาพ (image) เป็น string / image must be a non-empty string"
+    return image_b64.strip(), None
+
+
+@api_bp.route("/pipeline/blur-region", methods=["POST"])
+def handle_blur_region():
+    """POST /api/pipeline/blur-region — เบลอเฉพาะกรอบที่ผู้ใช้ลากเลือก (#163)
+
+    ส่งต่อให้ ai-engine ที่ POST /pipeline/02_enhancement/blur ซึ่งเรียก
+    pipeline/02_enhancement/spatial_filters.gaussian() อีกที
+
+    ไม่บังคับ login เหมือน /api/pipeline/palette/extract — เป็นแค่ transform ภาพที่
+    ส่งมาในคำขอเอง ไม่แตะข้อมูลที่เก็บไว้ของผู้ใช้คนไหน (ไม่มี id ให้เดา)
+    """
+    data = request.get_json(silent=True)
+    image_b64, error = _image_from_request(data)
+    if error:
+        return jsonify({"error": error}), 400
+
+    region = data.get("region")
+    if not isinstance(region, dict):
+        return jsonify({"error": "กรุณาระบุกรอบ (region) / region must be an object"}), 400
+
+    box = {}
+    for name, minimum in (("x", 0), ("y", 0), ("width", 1), ("height", 1)):
+        value, error = _whole_number(region.get(name), f"region.{name}", minimum, 20000)
+        if error:
+            return jsonify({"error": error}), 400
+        box[name] = value
+
+    # ขอบภาพตรวจที่ ai-engine เพราะที่นั่นมีภาพที่ถอดรหัสแล้วอยู่ในมือ
+    # ถ้าตรวจที่นี่ต้อง decode ภาพซ้ำอีกรอบเปล่าๆ ทุกคำขอ
+
+    size = data.get("size", 15)
+    size, error = _whole_number(size, "size", 3, 99)
+    if error:
+        return jsonify({"error": error}), 400
+    if size % 2 == 0:
+        # GaussianBlur ของ OpenCV รับเฉพาะเลขคี่ — บอกตั้งแต่ที่นี่จะอ่านรู้เรื่องกว่า
+        return jsonify({"error": "size ต้องเป็นเลขคี่ / size must be an odd number"}), 400
+
+    try:
+        image = blur_region(image_b64, box, size)
+    except PipelineClientError as e:
+        return jsonify({"error": e.message}), e.status_code
+    except Exception as e:
+        current_app.logger.error(f"เกิดข้อผิดพลาดในการเบลอภาพ: {e}", exc_info=True)
+        return jsonify({"error": "เกิดข้อผิดพลาดในการติดต่อ AI Engine / Internal Server Error"}), 500
+
+    return jsonify({"image": image}), 200
+
+
+@api_bp.route("/pipeline/find-objects", methods=["POST"])
+def handle_find_objects():
+    """POST /api/pipeline/find-objects — หาพิกัดกรอบของวัตถุในภาพ (#163)
+
+    ส่งต่อให้ ai-engine ที่ POST /pipeline/03_segmentation/contours
+
+    คืนแค่พิกัด ไม่วาดลงภาพ — หน้าเว็บวาดกรอบเอง ผู้ใช้จึงยังเห็นภาพต้นฉบับชัดๆ
+    """
+    data = request.get_json(silent=True)
+    image_b64, error = _image_from_request(data)
+    if error:
+        return jsonify({"error": error}), 400
+
+    # ช่วงค่าตามที่ selective_color_mask / clean_mask ของ pipeline รับได้
+    limits = {
+        "center_degrees": (0, 359, 50),
+        "tolerance_degrees": (1, 180, 20),
+        "saturation_min": (0, 255, 60),
+        "value_min": (0, 255, 40),
+        # ขั้นต่ำ 3 ให้ตรงกับ clean_mask() ของ pipeline (segmentation.py:68)
+        # ถ้ารับ 1 ผ่านไป ai-engine จะ raise ValueError -> ผู้ใช้เห็น 502 ทั้งที่ค่าตัวเองผิด
+        "kernel_size": (3, 31, 3),
+        "minimum_area": (0, 10_000_000, 200),
+    }
+    params = {}
+    for name, (minimum, maximum, default) in limits.items():
+        value, error = _whole_number(data.get(name, default), name, minimum, maximum)
+        if error:
+            return jsonify({"error": error}), 400
+        params[name] = value
+    if params["kernel_size"] % 2 == 0:
+        return jsonify({"error": "kernel_size ต้องเป็นเลขคี่ / kernel_size must be an odd number"}), 400
+
+    try:
+        objects = find_objects(image_b64, params)
+    except PipelineClientError as e:
+        return jsonify({"error": e.message}), e.status_code
+    except Exception as e:
+        current_app.logger.error(f"เกิดข้อผิดพลาดในการหาวัตถุ: {e}", exc_info=True)
+        return jsonify({"error": "เกิดข้อผิดพลาดในการติดต่อ AI Engine / Internal Server Error"}), 500
+
+    # ไม่เจอวัตถุเลยไม่ใช่ error — คืน list ว่างพร้อม 200
+    return jsonify({"objects": objects, "count": len(objects)}), 200
