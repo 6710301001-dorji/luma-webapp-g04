@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>LUMA — Function</title>
   <link rel="stylesheet" href="../css/main.css" />
+  <link rel="stylesheet" href="../css/function.css" />
 </head>
 <body data-page="function">
   <header class="app-header">
@@ -13,10 +14,68 @@
 
   <main class="app-main">
     <h1>Function</h1>
-    <!-- แทนที่ Smart Canvas — ยังไม่มีฟังก์ชันข้างใน -->
+    <p>เครื่องมือประมวลผลภาพ — ประมวลผลจริงที่ AI Engine ส่วนหน้าเว็บทำหน้าที่เลือกบริเวณและแสดงผล</p>
+
+    <div class="fn-error" id="fn-error" hidden role="alert"></div>
+
+    <section class="fn-card">
+      <label class="fn-file">
+        เลือกภาพจากเครื่อง
+        <input type="file" id="fn-file" accept="image/png, image/jpeg" />
+      </label>
+      <button type="button" id="fn-reset" disabled>คืนภาพต้นฉบับ</button>
+    </section>
+
+    <div class="fn-layout">
+      <section class="fn-canvas-card">
+        <p class="fn-hint" id="fn-hint">ยังไม่ได้เลือกภาพ</p>
+        <div class="fn-canvas-wrap">
+          <canvas id="fn-canvas" width="0" height="0"></canvas>
+        </div>
+      </section>
+
+      <section class="fn-tools">
+        <article class="fn-tool">
+          <h2>1. เบลอเฉพาะจุด</h2>
+          <p>ลากเมาส์บนภาพเพื่อเลือกกรอบ แล้วกดปุ่มเบลอ</p>
+
+          <div class="form-group">
+            <label for="fn-blur-size">ความแรง (ขนาด kernel — ต้องเป็นเลขคี่)</label>
+            <input type="number" id="fn-blur-size" value="15" min="3" max="99" step="2" />
+          </div>
+
+          <p class="fn-selection" id="fn-selection">ยังไม่ได้เลือกกรอบ</p>
+          <button type="button" id="fn-blur-btn" disabled>เบลอบริเวณที่เลือก</button>
+        </article>
+
+        <article class="fn-tool">
+          <h2>2. ตีกรอบวัตถุ</h2>
+          <p>หาวัตถุที่มีสีใกล้เคียงกับสีที่เลือก แล้วตีกรอบให้</p>
+
+          <div class="form-group">
+            <label for="fn-hue">สีที่ต้องการหา (องศาบนวงล้อสี 0-359)</label>
+            <input type="number" id="fn-hue" value="50" min="0" max="359" />
+          </div>
+
+          <div class="form-group">
+            <label for="fn-tolerance">ยอมให้เพี้ยนได้กี่องศา</label>
+            <input type="number" id="fn-tolerance" value="20" min="1" max="180" />
+          </div>
+
+          <div class="form-group">
+            <label for="fn-min-area">ข้ามวัตถุที่เล็กกว่า (พิกเซล)</label>
+            <input type="number" id="fn-min-area" value="200" min="0" />
+          </div>
+
+          <button type="button" id="fn-objects-btn" disabled>หาวัตถุในภาพ</button>
+          <p class="fn-result" id="fn-objects-result" hidden></p>
+        </article>
+      </section>
+    </div>
   </main>
 
   <script src="../js/csrf.js"></script>
   <script src="../js/layout.js"></script>
+  <script src="../js/function.js"></script>
 </body>
 </html>
