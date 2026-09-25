@@ -83,10 +83,10 @@ python tools/smoke_test_ai_deps.py         # เช็คว่า OpenCV / NumP
      │        └─ #54  histogram equalization      (ต้องมี #52 ก่อน)
      │            └─ #55  box / Gaussian / median + separability
      │                └─ #23  03_segmentation — ลบพื้นหลัง
-     │                    │      🔴 คนที่ 1 รออยู่ (#61 Smart Canvas)
+     │                    │      (#61 Smart Canvas ถูกตัด — คนที่ 1 ไม่ได้รอแล้ว)
      │                    │
      │                    └─ #63  color palette   ── epic #26
-     │                        │      🔴 คนที่ 1 รออยู่ (#60 Smart Canvas)
+     │                        │      (#60 Smart Canvas ถูกตัด — คนที่ 1 ไม่ได้รอแล้ว)
      │                        ├─ #62  feature vector จาก histogram
      │                        ├─ #64  shape feature + ความคมชัด
      │                        └─ #65  คัดแยกด้วยกฎ + auto-tag
@@ -116,8 +116,8 @@ python tools/smoke_test_ai_deps.py         # เช็คว่า OpenCV / NumP
 | **4** | [#53](https://github.com/boss2912/luma-webapp-g04/issues/53) point operation — gamma / log / contrast stretching | — | — |
 | **5** | [#54](https://github.com/boss2912/luma-webapp-g04/issues/54) histogram equalization + specification | ต้องมี #52 ก่อน | — |
 | **6** | [#55](https://github.com/boss2912/luma-webapp-g04/issues/55) spatial filter — box / Gaussian / median + พิสูจน์ separability | ต่อยอดจาก `Assignment5_1_Convolution.py` | — |
-| **7** | [#23](https://github.com/boss2912/luma-webapp-g04/issues/23) `03_segmentation` — ลบพื้นหลัง + selective color | ต่อยอดจาก `Assignment5_2_Color_Hue.py` (โค้ดถูกอยู่แล้ว) | 🔴 **คนที่ 1 รออยู่** (#61 Smart Canvas) |
-| **8** | [#63](https://github.com/boss2912/luma-webapp-g04/issues/63) ดึง Color Palette จากภาพ | ข้ามมาทำก่อน #62 เพราะมีคนรอ | 🔴 **คนที่ 1 รออยู่** (#60 Smart Canvas) |
+| **7** | [#23](https://github.com/boss2912/luma-webapp-g04/issues/23) `03_segmentation` — ลบพื้นหลัง + selective color | ต่อยอดจาก `Assignment5_2_Color_Hue.py` (โค้ดถูกอยู่แล้ว) | **#61 Smart Canvas ถูกตัด** — คนที่ 1 ไม่ได้รอแล้ว · งานนี้ยังต้องทำเพื่อส่วนย่อยข้อ 3 |
+| **8** | [#63](https://github.com/boss2912/luma-webapp-g04/issues/63) ดึง Color Palette จากภาพ | ข้ามมาทำก่อน #62 เพราะมีคนรอ | **#60 Smart Canvas ถูกตัด** — คนที่ 1 ไม่ได้รอแล้ว · งานนี้ยังต้องทำเพื่อส่วนย่อยข้อ 4 |
 | **9** | [#20](https://github.com/boss2912/luma-webapp-g04/issues/20) Forge client — พารามิเตอร์ครบ | คนที่ 1 ใช้ `mock_forge_server.py` แทนได้ไปก่อน จึงไม่ด่วนเท่า #23/#63 | 🟡 คนที่ 1 (#22) |
 | **10** | [#62](https://github.com/boss2912/luma-webapp-g04/issues/62) feature vector จาก histogram | — | — |
 | **11** | [#64](https://github.com/boss2912/luma-webapp-g04/issues/64) shape feature + ตรวจความคมชัด | — | — |

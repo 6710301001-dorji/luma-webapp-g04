@@ -76,8 +76,8 @@ python tools/check_all.py --install-hook   # .git/hooks/ ไม่ขึ้น g
      │        └─ #22  POST /api/generate
      │            └─ #58  แกลเลอรีของตัวเอง
      │                └─ #59  ค้นหา/กรองด้วย tag   🟡 รอ #24 (คนที่ 2)
-     │                    └─ #60 · #61  Smart Canvas
-     │                          🟡 รอ #63 palette + #23 segmentation (คนที่ 3)
+     │                    └─ หน้า Function (#153)
+     │                          (#60 · #61 Smart Canvas ถูกตัดออกแล้ว ไม่ต้องรอใคร)
      │
      └─ [V4/V5] ตัดได้ถ้าเวลาไม่พอ ─────────────────────────
          #29  แยก frontend + CORS
@@ -99,7 +99,7 @@ python tools/check_all.py --install-hook   # .git/hooks/ ไม่ขึ้น g
 | **10** | [#22](https://github.com/boss2912/luma-webapp-g04/issues/22) `POST /api/generate` | เปลี่ยนจาก mock เป็นของจริงตอน [#20](https://github.com/boss2912/luma-webapp-g04/issues/20) เสร็จ · GitHub บันทึกว่า **#32 บล็อกอันนี้** |
 | **11** | [#58](https://github.com/boss2912/luma-webapp-g04/issues/58) แกลเลอรีของตัวเอง | มี label `security` — คนอื่นต้องไม่เห็นภาพเรา แม้รู้ id (ตอบ **404 ไม่ใช่ 403**) |
 | **12** | [#59](https://github.com/boss2912/luma-webapp-g04/issues/59) ค้นหา/กรองด้วย tag | 🟡 **ต้องรอ [#24](https://github.com/boss2912/luma-webapp-g04/issues/24) (คนที่ 2)** |
-| **13** | [#60](https://github.com/boss2912/luma-webapp-g04/issues/60) · [#61](https://github.com/boss2912/luma-webapp-g04/issues/61) Smart Canvas | 🟡 **ต้องรอ [#63](https://github.com/boss2912/luma-webapp-g04/issues/63) color palette และ [#23](https://github.com/boss2912/luma-webapp-g04/issues/23) segmentation (คนที่ 3)** |
+| **13** | หน้า Function ([#153](https://github.com/boss2912/luma-webapp-g04/pull/153)) | แทน Smart Canvas ที่ทีมตัดออก ([#60](https://github.com/boss2912/luma-webapp-g04/issues/60) · [#61](https://github.com/boss2912/luma-webapp-g04/issues/61) ปิดแล้ว) · **ไม่ต้องรอใคร** |
 | — | [#29](https://github.com/boss2912/luma-webapp-g04/issues/29) V4 · [#30](https://github.com/boss2912/luma-webapp-g04/issues/30) V5 | ท้ายสุด · [`ROADMAP.md`](ROADMAP.md) จัดไว้ในรายการ **"ตัดได้ถ้าเวลาไม่พอ"** |
 
 ### ⛔ #14 · #15 · #25 เป็น epic — ห้ามลงมือ

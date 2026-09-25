@@ -47,7 +47,7 @@
         userGreeting.style.fontSize = "0.85rem";
         userGreeting.style.color = "#555";
         userGreeting.style.marginRight = "0.5rem";
-        userGreeting.textContent = `👤 ${displayName}`;
+        userGreeting.textContent = displayName;
 
         const logoutBtn = document.createElement("button");
         logoutBtn.className = "nav-link-btn";

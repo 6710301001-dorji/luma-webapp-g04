@@ -45,9 +45,21 @@ a {
 }
 
 .app-header__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
   font-weight: 700;
   font-size: 1.1rem;
   text-decoration: none;
+}
+
+/* โลโก้เป็น .svg ไม่ใช่อิโมจิ — ระบุ width/height ใน <img> ด้วย
+   กันหน้ากระตุก (layout shift) ตอนไฟล์ยังโหลดไม่เสร็จ */
+.app-header__logo {
+  display: block;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
 }
 
 .app-nav {
@@ -82,8 +94,7 @@ a {
   border: 1px solid #ddd;
   background: #fff;
   border-radius: 6px;
-  padding: 0.4rem 0.6rem;
-  font-size: 1.1rem;
+  padding: 0.55rem 0.6rem;
   line-height: 1;
   cursor: pointer;
 }
@@ -141,4 +152,37 @@ a:focus-visible,
 button:focus-visible {
   outline: 2px solid #2f3ba3;
   outline-offset: 2px;
+}
+
+/* ==========================================================================
+   ปุ่มเปิดเมนูบนจอแคบ — ขีดสามเส้นวาดด้วย CSS ไม่ใช้อักขระหรืออิโมจิ
+   ใช้ currentColor เพื่อให้สีตามตัวอักษรของปุ่มเสมอ
+   ========================================================================== */
+.app-header__toggle-bars,
+.app-header__toggle-bars::before,
+.app-header__toggle-bars::after {
+  display: block;
+  width: 18px;
+  height: 2px;
+  background: currentColor;
+  border-radius: 1px;
+}
+
+.app-header__toggle-bars {
+  position: relative;
+}
+
+.app-header__toggle-bars::before,
+.app-header__toggle-bars::after {
+  content: "";
+  position: absolute;
+  left: 0;
+}
+
+.app-header__toggle-bars::before {
+  top: -6px;
+}
+
+.app-header__toggle-bars::after {
+  top: 6px;
 }

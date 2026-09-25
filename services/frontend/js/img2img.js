@@ -228,7 +228,7 @@
         showError(err.message);
       } finally {
         submitBtn.disabled = false;
-        submitBtn.textContent = "✨ แก้ภาพด้วย AI";
+        submitBtn.textContent = "แก้ภาพด้วย AI";
       }
     });
 

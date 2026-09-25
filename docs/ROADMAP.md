@@ -100,12 +100,12 @@ Nginx เป็นประตูหน้าเดียว route ไปทุ�
 - [ ] ทำความสะอาด mask ด้วย morphology (OPEN/CLOSE)
 - [ ] `findContours` → bounding box, พื้นที่, จำนวนวัตถุ
 - [ ] Otsu threshold อัตโนมัติ
-- [ ] **Background removal** → คืน alpha channel ให้ Smart Canvas
+- [x] **Background removal** → `remove_background()` · ใช้ในรายงาน ไม่มีหน้าเว็บเรียก (Smart Canvas ถูกตัด)
 - [ ] **ต่อยอดจาก `Assignment5_2_Color_Hue.py`** (โค้ดถูกอยู่แล้ว)
 
 ### ⬜ ข้อ 4 · `04_features` — สกัดคุณลักษณะ → คัดแยก
 - [ ] histogram statistics เป็น feature vector
-- [ ] **color palette extraction** → ใช้ใน Smart Canvas ได้ตรงๆ
+- [x] **color palette extraction** → `extract_palette()` · มี route `/api/pipeline/palette/extract` แต่ยังไม่มีหน้าเว็บเรียก
 - [ ] shape features (area, perimeter, aspect ratio, circularity)
 - [ ] พลังงานย่านความถี่สูง → ตรวจว่าภาพคมหรือเบลอ
 - [ ] classification ด้วยกฎ threshold ที่อธิบายได้
@@ -126,11 +126,16 @@ Nginx เป็นประตูหน้าเดียว route ไปทุ�
 
 ## เส้นที่ 3 — ฟีเจอร์ LUMA ตามสเปก (Lecture 4 หน้า 52)
 
-### ⬜ Smart Canvas
-- [ ] จัดวาง Layout
-- [ ] จับคู่สี (Color Palettes) ← ใช้ `04_features`
-- [ ] ลบ Background อัตโนมัติ ← ใช้ `03_segmentation`
-- [ ] เลือกวัตถุอัตโนมัติ ← ใช้ `03_segmentation`
+### ❌ Smart Canvas — ทีมตัดออก ใช้หน้า Function แทน (#153)
+
+เหตุผล: สามข้อล่างเป็น **ส่วนย่อยข้อ 3 และ 4 ของเกณฑ์อาจารย์** (Lecture 1 หน้า 6) อยู่แล้ว
+คะแนนจึงอยู่ที่ `pipeline/` ไม่ใช่ที่หน้าเว็บ — การทำ canvas ลาก/วาง ไม่ได้เพิ่มคะแนนส่วนนั้น
+แต่กินเวลาฝั่ง frontend มาก
+
+- ~~จัดวาง Layout~~ — ตัดออก
+- ~~จับคู่สี (Color Palettes)~~ — โค้ดอยู่ที่ `04_features/color_palette.py` · route `/api/pipeline/palette/extract` ยังอยู่ แต่ไม่มีหน้าเว็บเรียก
+- ~~ลบ Background อัตโนมัติ~~ — โค้ดอยู่ที่ `03_segmentation/segmentation.py::remove_background()` · ไม่ทำ route บนเว็บ (#101)
+- ~~เลือกวัตถุอัตโนมัติ~~ — `03_segmentation/segmentation.py::find_objects()` · วัดผลแล้วใน #67 (IoU 0.7133)
 
 ### ⬜ Asset Hub
 - [ ] ใส่ Tag (many-to-many)
@@ -155,7 +160,7 @@ Nginx เป็นประตูหน้าเดียว route ไปทุ�
         คน 3: 01_acquisition + 02_enhancement
 
 ระยะ 2  ต่อ V3 + pipeline กลาง
-        คน 1: /api/generate + queue integration + Smart Canvas UI
+        คน 1: /api/generate + queue integration + หน้า Function
         คน 2: Asset Hub queries + auto-tag storage
         คน 3: forge client ครบพารามิเตอร์ + 03_segmentation
 

@@ -34,9 +34,9 @@ python services/backend/run.py
 
 ```
 frontend/
-├── pages/      HTML แต่ละหน้า (index, login, register, dashboard, canvas, hub)
+├── pages/      HTML แต่ละหน้า (index, login, register, generate, gallery, img2img, function)
 ├── css/        stylesheet
-├── js/         โค้ด JS (api client, smart canvas, gallery)
+├── js/         โค้ด JS (csrf, layout, generate, gallery, img2img, …)
 └── assets/     ไอคอน / รูปประกอบ
 ```
 

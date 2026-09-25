@@ -27,7 +27,7 @@
 | งาน | รายละเอียด |
 |---|---|
 | **Backend (Flask)** | `create_app()` factory, Blueprint (main/auth/api), Authentication, REST API, Logging |
-| **Frontend** | HTML / CSS / JS, Smart Canvas UI, Asset Hub UI, responsive |
+| **Frontend** | HTML / CSS / JS, หน้า Function, Asset Hub UI, responsive |
 | **Nginx** | reverse proxy (งาน V5) |
 | **Integration** | เป็นคนรวมงานของทุกคนเข้าด้วยกัน เพราะเป็นชั้นกลาง |
 
