@@ -33,7 +33,7 @@
 | กลุ่ม | ฟีเจอร์ |
 |---|---|
 | **AI Generation** | Text-to-Image · Image-to-Image · *(optional)* LLM เล็กช่วยแปลงข้อความเป็น prompt |
-| **Smart Canvas** | จัดวาง Layout · จับคู่สี (Color Palettes) · ลบ Background อัตโนมัติ · เลือกวัตถุอัตโนมัติ (Segmentation) |
+| **Function** | ฟังก์ชันประมวลผลภาพที่เรียกใช้ `pipeline/` ได้จากหน้าเว็บ (แทน Smart Canvas ที่ทีมตัดออก — ดู `docs/COURSE_REQUIREMENTS.md` ข้อ 9) |
 | **Asset Hub** | คลังผลงาน · ใส่ Tag · ค้นหา · ปรับ Style ตามผู้ใช้ (User Account Control) |
 
 **กลุ่มเป้าหมาย**: นักศึกษา CDTI CPE ปี 2 / ปี 4 · Content Creators & YouTubers · Digital Artists & Designers

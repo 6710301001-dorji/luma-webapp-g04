@@ -179,7 +179,7 @@ Query params ที่ต้องรองรับ (สเปก Asset Hub —
 
 โหมด `sketch` / `inpaint-sketch`: frontend วาดเส้นลงบนภาพก่อนแล้วส่งภาพที่วาดแล้วเป็น `init_image` (ai-engine ส่ง `mode` ไม่ต่อให้ Forge — ดู `POST /forge/img2img`)
 
-### `POST /api/pipeline/palette/extract` — Smart Canvas (Issue #101, #60)
+### `POST /api/pipeline/palette/extract` — จานสีจาก `04_features` (Issue #101, #60)
 
 ```json
 // request
@@ -190,18 +190,22 @@ Query params ที่ต้องรองรับ (สเปก Asset Hub —
 ```
 
 Backend เรียก `POST /pipeline/04_features/color_palette` ต่อ (ดูหัวข้อ Backend → AI Engine)
-แล้วดึงเฉพาะ `metrics.color_palette` ออกมาห่อเป็น `{colors: [...]}` ให้ `canvas.js` ใช้ตรงๆ
-(`canvas.js` เขียนไว้ก่อนแล้วว่าอ่าน `data.colors` เป็น array ของ hex string ไม่ใช่ object)
+แล้วดึงเฉพาะ `metrics.color_palette` ออกมาห่อเป็น `{colors: [...]}` เป็น array ของ hex string
+
+> ⚠️ ตอนนี้ **ไม่มีหน้าเว็บไหนเรียก endpoint นี้** — `canvas.js` ที่เคยเรียกถูกลบไปพร้อม Smart Canvas (#153)
+> route กับ test ยังอยู่ ถ้าสุดท้ายไม่มีใครใช้ค่อยเปิด issue ลบทีหลัง (สรุปไว้ใน #101)
 
 เชื่อมต่อ ai-engine ไม่ได้ หรือ response ไม่มี `metrics.color_palette` → 502
 
 > ⚠️ ยังไม่บังคับ login — endpoint นี้ไม่แตะข้อมูลที่เก็บไว้ของผู้ใช้คนไหนเลย (ไม่มี id ให้เดา)
 > เป็นแค่ transform ภาพที่ส่งมาในคำขอเอง ต่างจาก `GET /api/assets` ที่ต้องป้องกันข้อมูลที่เก็บไว้จริง
 
-### `POST /api/pipeline/segmentation/remove_bg` — Smart Canvas (Issue #101, #61)
+### ~~`POST /api/pipeline/segmentation/remove_bg`~~ — ยกเลิก (Issue #101, #61)
 
-⬜ **ยังไม่ implement** — รอ `03_segmentation` ที่ยังไม่มีโค้ด pipeline เลยสักบรรทัด (ตรวจแล้ว ณ วันที่เขียนหัวข้อนี้)
-`canvas.js` เรียก endpoint นี้ไว้แล้วแต่ backend ยังไม่มี route ตอบเลย (404)
+❌ **ไม่ทำ** — ยกเลิกพร้อม Smart Canvas · backend จะไม่มี route นี้
+
+ตัวลบพื้นหลังอยู่ที่ `pipeline/03_segmentation/segmentation.py::remove_background()` ซึ่งเป็น
+**ส่วนย่อยข้อ 3 ของเกณฑ์อาจารย์** และวัดผลแล้วใน #67 — คะแนนอยู่ตรงนั้น ไม่ได้อยู่ที่หน้าเว็บ
 
 ---
 

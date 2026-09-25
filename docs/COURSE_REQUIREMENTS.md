@@ -73,6 +73,13 @@ Visual Problem Domain
 > **Smart Canvas ข้อ 2–3 คือ pipeline ข้อ 2–3 ในตารางข้อ 1** — Background Removal และ Segmentation
 > เป็นทั้ง "ฟีเจอร์ที่ผู้ใช้เห็น" และ "ส่วนย่อยที่อาจารย์ให้คะแนน" ในเวลาเดียวกัน
 
+> 📌 **ทีมตัดสินใจ (#61, #101, #153)** — ข้อความข้างบนคือสเปกของอาจารย์ คงไว้ตามเดิม
+> แต่ทีม **ไม่ทำหน้า Smart Canvas** ใช้หน้า **Function** แทน เหตุผล: Background Removal
+> กับ Segmentation ได้คะแนนจาก **ส่วนย่อยข้อ 3** ซึ่งอยู่ใน `pipeline/03_segmentation/`
+> และวัดผลจริงแล้วใน #67 (IoU 0.7133 · precision 0.9171 · recall 0.7667 จาก 5 ภาพ)
+> ส่วนจับคู่สีอยู่ใน **ส่วนย่อยข้อ 4** ที่ `pipeline/04_features/color_palette.py`
+> การทำ canvas ลาก/วางบนหน้าเว็บไม่ได้เพิ่มคะแนนของสองส่วนนั้น
+
 ### กลุ่มเป้าหมาย (Lecture 4 หน้า 53)
 
 - **CDTI CPE Student** — นักศึกษาปี 2 (รุ่นน้อง) หรือปี 4 (รุ่นพี่)
@@ -384,7 +391,7 @@ def make_hue_mask(hsv, center_deg, tol_deg, sat_min, val_min):
 | 3 | `03_segmentation` — background removal, object selection | ❌ | มีโค้ด Assignment #5.2 แล้ว |
 | 4 | `04_features` — feature extraction → classification | ❌ | histogram statistics เป็นจุดเริ่มที่ทำได้ทันที |
 | 5 | `05_evaluation` — วัดประสิทธิภาพ | ❌ | **ข้อที่มักถูกลืม** ต้องมีตัวเลขจริง |
-| 6 | Smart Canvas — layout, color palette | ❌ | |
+| 6 | ~~Smart Canvas — layout, color palette~~ | — | **ทีมตัดออก** ใช้หน้า Function แทน · palette อยู่ที่ `04_features` · background removal / object selection อยู่ที่ `03_segmentation` (ข้อ 3) |
 | 7 | Asset Hub — tag + search จริง | ⚠️ | มีคอลัมน์ `tags` แต่เป็น comma-string ค้นหาไม่ได้จริง |
 | 8 | img2img | ❌ | Lecture 2 หน้า 56–61 |
 | 9 | ControlNet / LoRA / Regional Prompt | ❌ | Lecture 2 หน้า 23–55 |
