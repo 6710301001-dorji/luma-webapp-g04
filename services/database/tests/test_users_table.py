@@ -7,9 +7,6 @@
     "ลบ user แล้ว asset หายตาม"             ->  DELETE user 1 แถว แล้วนับ assets เหลือ 0
     "ทุก connection รัน PRAGMA foreign_keys" ->  เปิด connection ใหม่แล้วอ่านค่า PRAGMA กลับมา
 
-ขอบเขตรอบนี้ **ไม่รวมตาราง jobs** — L4 หน้า 55 ระบุว่า queue เป็นงานคนที่ 3
-และข้อ 6 ของ docs/API_CONTRACT.md ("ตาราง jobs ใครเขียน ใครอ่าน") ยังไม่ตกลง
-
 ทดสอบบนไฟล์ .db ชั่วคราวของ pytest เสมอ ไม่แตะ instance/luma.db ของจริง
 และสร้างตารางด้วย migration จริง ไม่ใช่ db.create_all() (ADR-008 กฎข้อ 2)
 """
@@ -57,8 +54,6 @@ def test_upgrade_creates_users_and_links_assets(app):
 
         assert "users" in tables
         assert "assets" in tables
-        assert "jobs" not in tables, "รอบนี้ยังไม่สร้าง jobs (ดู docstring หัวไฟล์)"
-
         user_cols = {c["name"] for c in inspector.get_columns("users")}
         assert {"id", "username", "email", "password_hash", "created_at"} <= user_cols
 

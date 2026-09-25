@@ -182,11 +182,15 @@ def default_db_path():
     sys.path.insert(0, str(DATABASE_DIR))
     from migrate_app import create_migration_app
 
-    uri = create_migration_app().config["SQLALCHEMY_DATABASE_URI"]
+    app = create_migration_app()
+    uri = app.config["SQLALCHEMY_DATABASE_URI"]
     prefix = "sqlite:///"
     if not uri.startswith(prefix):
         raise SystemExit(f"สคริปต์นี้รองรับแค่ SQLite แต่ตอนนี้ตั้งไว้เป็น: {uri}")
-    return Path(uri[len(prefix):])
+    path = Path(uri[len(prefix):])
+    if not path.is_absolute():
+        path = Path(app.instance_path) / path
+    return path
 
 
 # --- console encoding (แบบเดียวกับ tools/check_all.py) -------------------------

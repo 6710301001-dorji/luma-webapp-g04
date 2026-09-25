@@ -175,22 +175,28 @@ v1 hardcode `debug=True, host="0.0.0.0"` = ทุกเครื่องบน 
 
 ## 8. Data Flow ตัวอย่าง — generate ภาพ
 
+**คิวอยู่ที่ backend ไม่ใช่ ai-engine** — ตกลงกันใน #21 · ai-engine ยังเป็น request/response
+ธรรมดา ไม่มีคิว ไม่มี callback ไม่มีที่เก็บผลฝั่งตัวเอง
+
 ```
-1. Browser  POST /api/generate {prompt, steps, cfg_scale, sampler, seed}
-2. backend  routes/api.py       → validate ชนิด + ขอบเขตทุกฟิลด์
-3. backend  services/generate.py → สร้างแถว jobs (status=pending)
-4. backend  → HTTP POST ไป ai-engine
-5. ai-engine  queue/ รับเข้าคิว → status=running
-6. ai-engine  forge/ → เรียก Forge AI (Stable Diffusion WebUI)
-7. ai-engine  ได้ base64 → (optional) ส่งผ่าน pipeline/02_enhancement
-8. ai-engine  → ตอบกลับ backend
-9. backend  บันทึกไฟล์นอก static/ (ชื่อ uuid) + แถว assets + status=done
-10. backend → ตอบ {asset_id, image_url: "/api/assets/<id>/image"}
-11. Browser  โหลดรูปผ่าน endpoint ที่เช็ค ownership
+ 1. Browser    POST /api/generate {prompt, steps, cfg_scale, sampler_name, seed, width, height}
+ 2. backend    routes/api.py          → validate ชนิด + ขอบเขตทุกฟิลด์ (ผิด = 400 ไม่มี job เกิดขึ้น)
+ 3. backend    services/job_queue.py  → enqueue() สร้างแถว jobs (status=pending)
+ 4. backend    → ตอบ 202 {"status": "queued", "job_id": N} ทันที ไม่รอภาพ
+ 5. worker     thread ใน backend      → claim_next() จอง pending ที่เก่าสุด → status=running
+ 6. worker     services/forge_client.py → HTTP POST ai-engine /forge/txt2img (sync ทีละงาน)
+ 7. ai-engine  forge/ → เรียก Forge AI (Stable Diffusion WebUI) อ่าน seed จริงจาก info
+ 8. ai-engine  → ตอบ base64 กลับ backend
+ 9. worker     บันทึกไฟล์นอก static/ (ชื่อ uuid4) + แถว assets + jobs.status=done, asset_id, seed_used
+10. Browser    poll GET /api/jobs/<id> → pending / running / done / failed (+ error ถ้า failed)
+11. Browser    พอ done ได้ image_url → โหลดรูปผ่าน /api/assets/<id>/image ที่เช็ค ownership
 ```
 
+งานที่ล้ม (Forge ไม่ตอบ / ai-engine ล่ม) จะเป็น `status=failed` พร้อมเหตุผลในแถว job
+ไม่ค้างที่ `running` · ไม่ retry เอง ผู้ใช้กดส่งใหม่
+
 **จุดที่ v1 ทำไม่ถูกและต้องแก้**
-- ข้อ 4–8 ใน v1 เป็น **synchronous บล็อก 120 วินาที** → ต้องมี queue (ข้อ 5)
+- ข้อ 4–8 ใน v1 เป็น **synchronous บล็อก 120 วินาที** → แก้ด้วยคิวที่ backend (ข้อ 4–5)
 - ข้อ 9 ใน v1 ใช้ `int(time.time())` เป็นชื่อไฟล์ → ชนกันในวินาทีเดียว ต้องใช้ `uuid4`
 - ตาราง `jobs` มีอยู่แต่ไม่มีใครเขียน/อ่าน → ข้อ 3, 5, 9 ต้องใช้จริง
 

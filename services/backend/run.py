@@ -7,6 +7,7 @@ Entry point สำหรับเริ่มต้นรันเซิร์�
 import os
 
 from app import create_app
+from app.services.job_queue import start_worker
 
 app = create_app()
 
@@ -22,6 +23,11 @@ if __name__ == "__main__":
             "ห้ามเปิด LUMA_DEBUG=1 พร้อม LUMA_HOST ที่ไม่ใช่ localhost (ดู INSTALL.md) "
             "/ Refusing to run the debugger on a network-facing host."
         )
+
+    # worker ของคิวสร้างภาพ (#21) — debug reloader มีสองโปรเซส (ตัวคุม + ตัวเสิร์ฟ)
+    # เริ่มเฉพาะตัวที่เสิร์ฟจริง ไม่งั้นมี worker สองตัวแย่งคิวกันโดยไม่จำเป็น
+    if not debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+        start_worker(app)
 
     print(f"🚀 LUMA Backend Server กำลังทำงานที่ http://{host}:5000")
     app.run(host=host, port=5000, debug=debug)

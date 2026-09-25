@@ -36,6 +36,19 @@ import db_backup  # noqa: E402
 from db_backup import backup, restore  # noqa: E402
 
 
+def test_default_db_path_matches_flask_for_relative_sqlite_uri(monkeypatch):
+    """ค่า sqlite:///luma.db ใน config.py.example ต้องชี้ไฟล์เดียวกับ Flask"""
+    monkeypatch.setenv("LUMA_DATABASE_URI", "sqlite:///luma.db")
+
+    from migrate_app import create_migration_app
+    from app.models import db
+
+    with create_migration_app().app_context():
+        flask_path = Path(db.engine.url.database)
+
+    assert db_backup.default_db_path().resolve() == flask_path.resolve()
+
+
 def count_rows(db_file):
     """นับแถวทุกตาราง (ยกเว้นตารางภายในของ SQLite) → {ชื่อตาราง: จำนวนแถว}"""
     with closing(sqlite3.connect(db_file)) as conn:
