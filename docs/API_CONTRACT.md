@@ -323,20 +323,31 @@ img2img. Response fields remain `images` and `seed_used`.
 | 2 | คน 1 ↔ คน 2 | `GET /api/assets` รับ param อะไร ตอบรูปแบบไหน | ⬜ **ครบแล้ว**: `page`/`per_page`/`q` → `{items, page, per_page, total}` ตรงกับ `gallery.js` · ต้อง login + เห็นเฉพาะของตัวเอง · ภาพของคนอื่นตอบ 404 (#115) · **ยังไม่ครบ**: param `tags` / `sort` ในตารางข้างบน (รอตาราง tags #17/#24) · asset เก่าที่ `user_id` เป็น NULL ถูกซ่อนจากทุกคนแต่ยังไม่ลบ รอตัดสินใจใน #97 |
 | 3 | คน 1 ↔ คน 3 | `POST /api/generate` ตอบแบบ sync หรือ queued | ⬜ |
 | 4 | คน 1 ↔ คน 3 | เส้นทาง `/pipeline/<stage>/<operation>` | ⬜ |
-| 5 | **คน 2 ↔ คน 3** | **รูปแบบ auto-tag ที่ `04_features` ส่งให้ Asset Hub** | ⬜ |
+| 5 | **คน 2 ↔ คน 3** | **รูปแบบ auto-tag ที่ `04_features` ส่งให้ Asset Hub** | 🟨 เสนอให้ tag เป็น string แบน · เหตุผลแยกต่างหาก · ไม่มี score/namespace — รอคนที่ 2 ยืนยันใน PR (#17, #65) |
 | 6 | คน 1 ↔ คน 3 | ตาราง `jobs` ใครเขียน ใครอ่าน | ⬜ |
 | 7 | ทุกคน | ชื่อ env var ทั้งหมด | ⬜ |
 
-### ข้อ 5 — auto-tag ที่ต้องตกลง
+### ข้อ 5 — ข้อเสนอ auto-tag ที่รอคนที่ 2 ยืนยัน
 
-`04_features` หา color palette และ feature ได้ → จะส่งให้ Asset Hub เป็น tag รูปแบบไหน?
+`POST /pipeline/04_features/auto_tag` ส่งชื่อ tag เป็น **array ของ string แบบแบน**
+ใน `metrics.auto_tags` และส่งเหตุผลแยกตามชื่อใน `metrics.auto_tag_reasons`:
 
-ตัวเลือก:
-- **แบน**: `["warm", "high-contrast", "portrait"]` — เก็บง่าย ค้นง่าย
-- **มี namespace**: `["tone:warm", "contrast:high", "subject:portrait"]` — กรองตามหมวดได้
-- **มีคะแนน**: `[{"tag": "warm", "score": 0.87}]` — เรียงตามความมั่นใจได้ แต่ schema ซับซ้อนขึ้น
+```json
+{
+  "image": "<base64>",
+  "metrics": {
+    "auto_tags": ["warm", "high-contrast", "landscape-orientation"],
+    "auto_tag_reasons": {
+      "warm": "Warm-hue pixels are 82.0% of chromatic pixels, at least the 50% threshold.",
+      "high-contrast": "The 5th-95th percentile intensity range 170.0 is above 128.",
+      "landscape-orientation": "Width-to-height ratio 1.50 is above 1.10."
+    }
+  }
+}
+```
 
-> ต้องตกลงก่อนคนที่ 2 สร้างตาราง `tags` เพราะกระทบ schema โดยตรง
+คนที่ 2 เก็บเฉพาะชื่อใน `tags` / `asset_tags`; ไม่เพิ่ม namespace หรือ score
+ใน schema ส่วน `reasons` ใช้แสดงผล ทดสอบ และอธิบายในรายงานโดยไม่ต้องเก็บในฐานข้อมูล
 
 ---
 
