@@ -24,7 +24,13 @@
           placeholder="ค้นหาตาม Prompt เช่น sakura, anime..."
         />
         <button type="submit">ค้นหา</button>
+        <button type="button" id="gallery-clear-btn" hidden>ล้างตัวกรอง</button>
       </form>
+
+      <div class="gallery-tag-filter">
+        <span class="gallery-tag-filter__label">กรองด้วยแท็ก (เลือกได้หลายอัน — ได้ภาพที่มีครบทุกอัน)</span>
+        <div id="gallery-tags" class="gallery-tags"></div>
+      </div>
     </header>
 
     <div id="gallery-error" class="gallery-error" hidden></div>
