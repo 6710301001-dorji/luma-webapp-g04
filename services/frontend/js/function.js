@@ -3,6 +3,10 @@
  * -------------------------------------------------------------------------
  * สองเครื่องมือ: เบลอเฉพาะกรอบที่ลากเลือก · ตีกรอบวัตถุในภาพ
  *
+ * ไล่เป็นขั้น: เลือกฟังก์ชัน -> เลือกภาพ -> ทำงาน
+ * สองฟังก์ชันนี้ทำงานแยกกัน ไม่ได้ทำต่อจากกัน จึงแสดงทีละอันตามที่ผู้ใช้เลือก
+ * แสดงพร้อมกันทั้งคู่ทำให้เข้าใจผิดว่าต้องทำเรียงกัน
+ *
  * หน้าเว็บไม่ประมวลผลภาพเอง — ส่งไป backend ซึ่งส่งต่อ ai-engine อีกที
  * ที่นี่ทำแค่ เลือกบริเวณ · ยิง fetch · วาดผลลงบน canvas
  *
@@ -18,6 +22,21 @@
 
   const fileInput = document.getElementById("fn-file");
   const resetBtn = document.getElementById("fn-reset");
+  const changeImageBtn = document.getElementById("fn-change-image");
+  const changeFunctionBtn = document.getElementById("fn-change-function");
+  const stepFunction = document.getElementById("fn-step-function");
+  const stepImage = document.getElementById("fn-step-image");
+  const stepWork = document.getElementById("fn-step-work");
+  const chosenName = document.getElementById("fn-chosen-name");
+  const workTitle = document.getElementById("fn-work-title");
+  const toolBlur = document.getElementById("fn-tool-blur");
+  const toolObjects = document.getElementById("fn-tool-objects");
+
+  const FUNCTIONS = {
+    blur: { name: "เบลอเฉพาะจุด", work: "ลากกรอบแล้วกดเบลอ", tool: toolBlur },
+    objects: { name: "ตีกรอบวัตถุ", work: "ตั้งค่าแล้วกดหาวัตถุ", tool: toolObjects },
+  };
+  let chosen = null;
   const hint = document.getElementById("fn-hint");
   const errorBox = document.getElementById("fn-error");
   const selectionText = document.getElementById("fn-selection");
@@ -74,13 +93,63 @@
       objectsResult.hidden = true;
       hint.textContent = `ภาพขนาด ${image.naturalWidth} x ${image.naturalHeight} — ลากเมาส์บนภาพเพื่อเลือกกรอบ`;
       blurBtn.disabled = true;
-      objectsBtn.disabled = false;
+      objectsBtn.disabled = chosen !== "objects";
       resetBtn.disabled = false;
+      stepWork.hidden = false;
       redraw();
     };
     image.onerror = () => showError("เปิดภาพไม่สำเร็จ ลองไฟล์อื่น");
     image.src = dataUrl;
   }
+
+  /** ไปขั้นที่ 2 — เลือกภาพสำหรับฟังก์ชันที่เพิ่งเลือก */
+  function chooseFunction(key) {
+    chosen = key;
+    clearError();
+    chosenName.textContent = FUNCTIONS[key].name;
+    workTitle.textContent = FUNCTIONS[key].work;
+    Object.values(FUNCTIONS).forEach((f) => { f.tool.hidden = true; });
+    FUNCTIONS[key].tool.hidden = false;
+    stepFunction.hidden = true;
+    stepImage.hidden = false;
+    stepWork.hidden = true;
+  }
+
+  /** กลับไปขั้นที่ 1 — ล้างทุกอย่างทิ้ง เพราะสองฟังก์ชันไม่ได้ทำงานต่อจากกัน */
+  function resetToStart() {
+    chosen = null;
+    Object.values(FUNCTIONS).forEach((f) => { f.tool.hidden = true; });
+    chosenName.textContent = "";
+    workTitle.textContent = "";
+    originalDataUrl = null;
+    currentImage = null;
+    selection = null;
+    boxes = [];
+    fileInput.value = "";
+    objectsResult.hidden = true;
+    selectionText.textContent = "ยังไม่ได้เลือกกรอบ";
+    hint.textContent = "ยังไม่ได้เลือกภาพ";
+    blurBtn.disabled = true;
+    objectsBtn.disabled = true;
+    resetBtn.disabled = true;
+    clearError();
+    stepFunction.hidden = false;
+    stepImage.hidden = true;
+    stepWork.hidden = true;
+  }
+
+  document.querySelectorAll(".fn-choice").forEach((btn) => {
+    btn.addEventListener("click", () => chooseFunction(btn.dataset.function));
+  });
+
+  changeFunctionBtn.addEventListener("click", resetToStart);
+
+  changeImageBtn.addEventListener("click", () => {
+    // เปลี่ยนภาพแต่ยังอยู่ฟังก์ชันเดิม — ถอยไปขั้นที่ 2 ไม่ต้องเริ่มใหม่ทั้งหมด
+    const keep = chosen;
+    resetToStart();
+    chooseFunction(keep);
+  });
 
   fileInput.addEventListener("change", () => {
     const file = fileInput.files && fileInput.files[0];

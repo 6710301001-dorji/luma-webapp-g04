@@ -3,6 +3,84 @@
    เบลอเฉพาะจุด + ตีกรอบวัตถุ
    ========================================================================== */
 
+/* ขั้นตอน 1-2-3 — แสดงทีละขั้น ไม่เปิดทุกอย่างพร้อมกัน
+   สองฟังก์ชันทำงานแยกกัน ถ้าโชว์พร้อมกันคนจะเข้าใจว่าต้องทำเรียงกัน */
+.fn-step {
+  padding: 1rem 1.25rem;
+  margin-bottom: 1rem;
+  background: #fff;
+  border: 1px solid #e5e5e5;
+  border-radius: 10px;
+}
+
+.fn-step__title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.75rem;
+  font-size: 1.05rem;
+}
+
+.fn-step__num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  font-size: 0.9rem;
+  color: #fff;
+  background: #6d28d9;
+  border-radius: 50%;
+}
+
+.fn-step__body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+}
+
+/* ปุ่มเลือกฟังก์ชัน — ทำให้ใหญ่พอที่จะอ่านคำอธิบายได้ก่อนกด */
+.fn-choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0.75rem;
+}
+
+.fn-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 1rem;
+  font: inherit;
+  text-align: left;
+  color: #1a1a1a;
+  background: #faf9ff;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.fn-choice:hover {
+  border-color: #6d28d9;
+  background: #f5f3ff;
+}
+
+.fn-choice__name {
+  font-weight: 700;
+}
+
+.fn-choice__desc {
+  font-size: 0.85rem;
+  color: #555;
+}
+
+.fn-tool__footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
 .fn-card {
   display: flex;
   flex-wrap: wrap;
@@ -131,6 +209,22 @@
 
 .fn-tool button:disabled,
 .fn-card button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ปุ่มรอง (เปลี่ยนภาพ / เปลี่ยนฟังก์ชัน / คืนภาพต้นฉบับ) — ไม่ควรเด่นเท่าปุ่มลงมือทำ */
+.fn-secondary {
+  padding: 0.5rem 0.9rem;
+  font: inherit;
+  color: #1a1a1a;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.fn-secondary:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }

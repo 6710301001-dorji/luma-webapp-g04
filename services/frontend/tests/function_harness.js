@@ -7,7 +7,7 @@ const [scenario, scriptPath] = process.argv.slice(2);
 function el(extra = {}) {
   const handlers = {};
   return {
-    textContent: "", value: "", disabled: false, hidden: false, files: null,
+    textContent: "", value: "", disabled: false, hidden: false, files: null, dataset: {},
     addEventListener(type, fn) { handlers[type] = fn; },
     fire(type, event = {}) { return handlers[type] ? handlers[type](event) : undefined; },
     has(type) { return Boolean(handlers[type]); },
@@ -39,11 +39,19 @@ function makeCanvas(displayWidth) {
 
 const IDS = ["fn-canvas", "fn-file", "fn-reset", "fn-hint", "fn-error", "fn-selection",
   "fn-blur-btn", "fn-objects-btn", "fn-objects-result", "fn-blur-size", "fn-hue",
-  "fn-tolerance", "fn-min-area"];
+  "fn-tolerance", "fn-min-area",
+  // ขั้นตอน 1-2-3 (เลือกฟังก์ชัน -> เลือกภาพ -> ทำงาน)
+  "fn-change-image", "fn-change-function", "fn-step-function", "fn-step-image",
+  "fn-step-work", "fn-chosen-name", "fn-work-title", "fn-tool-blur", "fn-tool-objects"];
 
 function load({ displayWidth, fetchImpl, imageSize = [800, 600] }) {
   const nodes = {};
   IDS.forEach((id) => { nodes[id] = el(); });
+  const choices = [el({ dataset: { function: "blur" } }), el({ dataset: { function: "objects" } })];
+  // ตั้งสถานะเริ่มต้นให้ตรงกับ function.html ที่ใส่ hidden ไว้ตั้งแต่ต้น
+  // (el() ตั้ง hidden=false ให้ทุกตัว ถ้าไม่ตั้งตรงนี้ mock จะไม่ตรงกับของจริง)
+  ["fn-step-image", "fn-step-work", "fn-tool-blur", "fn-tool-objects",
+   "fn-objects-result"].forEach((id) => { nodes[id].hidden = true; });
   const canvas = makeCanvas(displayWidth);
   nodes["fn-canvas"] = canvas;
   nodes["fn-blur-size"].value = "15";
@@ -73,14 +81,23 @@ function load({ displayWidth, fetchImpl, imageSize = [800, 600] }) {
     Math,
     Number,
     JSON,
-    document: { getElementById: (id) => nodes[id] || null },
+    document: {
+      getElementById: (id) => nodes[id] || null,
+      // ปุ่มเลือกฟังก์ชันสองอัน — gallery ของ DOM จริงใช้ .fn-choice
+      querySelectorAll: (sel) => (sel === ".fn-choice" ? choices : []),
+    },
   };
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(scriptPath, "utf8"), ctx);
-  return { nodes, canvas, loaded };
+  return { nodes, canvas, loaded, choices };
 }
 
-function pickImage(env) {
+function chooseFunction(env, key) {
+  env.choices.find((c) => c.dataset.function === key).fire("click");
+}
+
+function pickImage(env, key = "blur") {
+  chooseFunction(env, key);              // ขั้นที่ 1 ต้องเลือกฟังก์ชันก่อนเสมอ
   env.nodes["fn-file"].files = [{ name: "a.png" }];
   env.nodes["fn-file"].fire("change");
 }
@@ -94,6 +111,56 @@ function drag(canvas, from, to) {
 const sleep = () => new Promise((r) => setTimeout(r, 0));
 
 async function main() {
+  // ---- ขั้นตอน 1-2-3 ----
+  const steps = (env) => ({
+    step1: !env.nodes["fn-step-function"].hidden,
+    step2: !env.nodes["fn-step-image"].hidden,
+    step3: !env.nodes["fn-step-work"].hidden,
+    toolBlur: !env.nodes["fn-tool-blur"].hidden,
+    toolObjects: !env.nodes["fn-tool-objects"].hidden,
+    chosenName: env.nodes["fn-chosen-name"].textContent,
+    objectsDisabled: env.nodes["fn-objects-btn"].disabled,
+    resetDisabled: env.nodes["fn-reset"].disabled,
+    hint: env.nodes["fn-hint"].textContent,
+  });
+
+  if (scenario === "start") {
+    const env = load({ displayWidth: 400 });
+    return console.log(JSON.stringify(steps(env)));
+  }
+
+  if (scenario === "after_choose_blur") {
+    const env = load({ displayWidth: 400 });
+    chooseFunction(env, "blur");
+    return console.log(JSON.stringify(steps(env)));
+  }
+
+  if (scenario === "after_choose_objects") {
+    const env = load({ displayWidth: 400 });
+    chooseFunction(env, "objects");
+    return console.log(JSON.stringify(steps(env)));
+  }
+
+  if (scenario === "after_pick_image") {
+    const env = load({ displayWidth: 400 });
+    pickImage(env, "blur");
+    return console.log(JSON.stringify(steps(env)));
+  }
+
+  if (scenario === "change_function") {
+    const env = load({ displayWidth: 400 });
+    pickImage(env, "blur");
+    env.nodes["fn-change-function"].fire("click");
+    return console.log(JSON.stringify(steps(env)));
+  }
+
+  if (scenario === "change_image") {
+    const env = load({ displayWidth: 400 });
+    pickImage(env, "objects");
+    env.nodes["fn-change-image"].fire("click");
+    return console.log(JSON.stringify(steps(env)));
+  }
+
   if (scenario === "scaled_drag") {
     // ภาพจริง 800px แต่แสดงบนจอ 400px -> ลากที่จอ 100-200 ต้องกลายเป็น 200-400 ในภาพ
     const env = load({ displayWidth: 400 });
@@ -162,7 +229,7 @@ async function main() {
         };
       },
     });
-    pickImage(env);
+    pickImage(env, "objects");
     env.nodes["fn-hue"].value = "120";
     env.nodes["fn-tolerance"].value = "30";
     env.nodes["fn-min-area"].value = "500";

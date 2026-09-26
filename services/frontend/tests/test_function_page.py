@@ -97,3 +97,60 @@ def test_server_error_is_shown_and_button_recovers():
     assert "region is outside the image" in result["error"]
     assert result["errorHidden"] is False
     assert result["buttonDisabled"] is False
+
+
+# ------------------------------------------------- ลำดับขั้น 1-2-3 (ปรับตามที่ผู้ใช้ขอ)
+
+def test_only_the_function_step_shows_at_the_start():
+    """[กรณีทดสอบ]: เปิดหน้ามาต้องเห็นแค่ "เลือกฟังก์ชัน" ยังไม่ให้เลือกภาพ"""
+    s = _run("start")
+    assert s["step1"] is True
+    assert s["step2"] is False and s["step3"] is False
+
+
+def test_choosing_a_function_opens_the_image_step_with_only_that_tool():
+    """[กรณีทดสอบ]: เลือกฟังก์ชันแล้วค่อยให้เลือกภาพ และโชว์เครื่องมือของฟังก์ชันนั้นอันเดียว
+
+    สองฟังก์ชันทำงานแยกกัน ถ้าโชว์พร้อมกันคนจะเข้าใจว่าต้องทำเรียงกัน
+    """
+    s = _run("after_choose_blur")
+    assert s["step1"] is False and s["step2"] is True and s["step3"] is False
+    assert s["toolBlur"] is True and s["toolObjects"] is False
+    assert s["chosenName"] == "เบลอเฉพาะจุด"
+
+    s = _run("after_choose_objects")
+    assert s["toolObjects"] is True and s["toolBlur"] is False
+    assert s["chosenName"] == "ตีกรอบวัตถุ"
+
+
+def test_picking_an_image_opens_the_work_step():
+    """[กรณีทดสอบ]: เลือกภาพแล้วถึงจะเห็นพื้นที่ทำงาน"""
+    s = _run("after_pick_image")
+    assert s["step3"] is True
+    assert s["resetDisabled"] is False
+    assert "800 x 600" in s["hint"]
+
+
+def test_choosing_blur_does_not_enable_the_other_function_button():
+    """[กรณีทดสอบ]: เลือกเบลอแล้วปุ่มหาวัตถุต้องกดไม่ได้ — คนละฟังก์ชันกัน"""
+    s = _run("after_pick_image")
+    assert s["objectsDisabled"] is True
+
+
+def test_change_function_goes_back_to_step_one_and_clears_everything():
+    """[กรณีทดสอบ]: กดเปลี่ยนฟังก์ชันต้องเริ่มใหม่หมด ไม่ใช่เอาภาพเดิมไปต่อ"""
+    s = _run("change_function")
+    assert s["step1"] is True and s["step2"] is False and s["step3"] is False
+    assert s["resetDisabled"] is True
+    assert "ยังไม่ได้เลือกภาพ" in s["hint"]
+    # เครื่องมือกับชื่อฟังก์ชันต้องถูกล้างด้วย ไม่ใช่แค่ซ่อนขั้นที่ครอบมันอยู่
+    assert s["toolBlur"] is False and s["toolObjects"] is False
+    assert s["chosenName"] == ""
+
+
+def test_change_image_keeps_the_same_function():
+    """[กรณีทดสอบ]: กดเปลี่ยนภาพต้องถอยแค่ขั้นที่ 2 ไม่ต้องเลือกฟังก์ชันใหม่"""
+    s = _run("change_image")
+    assert s["step2"] is True and s["step1"] is False
+    assert s["chosenName"] == "ตีกรอบวัตถุ"
+    assert s["toolObjects"] is True
