@@ -18,60 +18,92 @@
 
     <div class="fn-error" id="fn-error" hidden role="alert"></div>
 
-    <section class="fn-card">
-      <label class="fn-file">
-        เลือกภาพจากเครื่อง
-        <input type="file" id="fn-file" accept="image/png, image/jpeg" />
-      </label>
-      <button type="button" id="fn-reset" disabled>คืนภาพต้นฉบับ</button>
+    <!-- ขั้นที่ 1 — เลือกฟังก์ชันก่อน แต่ละฟังก์ชันทำงานแยกกัน ไม่ได้ทำต่อจากกัน -->
+    <section class="fn-step" id="fn-step-function">
+      <h2 class="fn-step__title"><span class="fn-step__num">1</span> เลือกฟังก์ชัน</h2>
+
+      <div class="fn-choices">
+        <button type="button" class="fn-choice" id="fn-choose-blur" data-function="blur">
+          <span class="fn-choice__name">เบลอเฉพาะจุด</span>
+          <span class="fn-choice__desc">ลากกรอบบนภาพ แล้วเบลอเฉพาะในกรอบ ส่วนนอกกรอบคงเดิม</span>
+        </button>
+
+        <button type="button" class="fn-choice" id="fn-choose-objects" data-function="objects">
+          <span class="fn-choice__name">ตีกรอบวัตถุ</span>
+          <span class="fn-choice__desc">หาวัตถุที่มีสีใกล้เคียงกับสีที่เลือก แล้วตีกรอบให้</span>
+        </button>
+      </div>
     </section>
 
-    <div class="fn-layout">
-      <section class="fn-canvas-card">
-        <p class="fn-hint" id="fn-hint">ยังไม่ได้เลือกภาพ</p>
-        <div class="fn-canvas-wrap">
-          <canvas id="fn-canvas" width="0" height="0"></canvas>
+    <!-- ขั้นที่ 2 — เลือกภาพ (โผล่หลังเลือกฟังก์ชันแล้ว) -->
+    <section class="fn-step" id="fn-step-image" hidden>
+      <h2 class="fn-step__title">
+        <span class="fn-step__num">2</span> เลือกภาพสำหรับ<span id="fn-chosen-name"></span>
+      </h2>
+
+      <div class="fn-step__body">
+        <label class="fn-file">
+          เลือกภาพจากเครื่อง
+          <input type="file" id="fn-file" accept="image/png, image/jpeg" />
+        </label>
+        <button type="button" class="fn-secondary" id="fn-change-function">เปลี่ยนฟังก์ชัน</button>
+      </div>
+    </section>
+
+    <!-- ขั้นที่ 3 — ทำงาน (โผล่หลังมีภาพแล้ว) -->
+    <section class="fn-step" id="fn-step-work" hidden>
+      <h2 class="fn-step__title"><span class="fn-step__num">3</span> <span id="fn-work-title"></span></h2>
+
+      <div class="fn-layout">
+        <div class="fn-canvas-card">
+          <p class="fn-hint" id="fn-hint">ยังไม่ได้เลือกภาพ</p>
+          <div class="fn-canvas-wrap">
+            <canvas id="fn-canvas" width="0" height="0"></canvas>
+          </div>
         </div>
-      </section>
 
-      <section class="fn-tools">
-        <article class="fn-tool">
-          <h2>1. เบลอเฉพาะจุด</h2>
-          <p>ลากเมาส์บนภาพเพื่อเลือกกรอบ แล้วกดปุ่มเบลอ</p>
+        <div class="fn-tools">
+          <article class="fn-tool" id="fn-tool-blur" hidden>
+            <p>ลากเมาส์บนภาพเพื่อเลือกกรอบ แล้วกดปุ่มเบลอ</p>
 
-          <div class="form-group">
-            <label for="fn-blur-size">ความแรง (ขนาด kernel — ต้องเป็นเลขคี่)</label>
-            <input type="number" id="fn-blur-size" value="15" min="3" max="99" step="2" />
+            <div class="form-group">
+              <label for="fn-blur-size">ความแรง (ขนาด kernel — ต้องเป็นเลขคี่)</label>
+              <input type="number" id="fn-blur-size" value="15" min="3" max="99" step="2" />
+            </div>
+
+            <p class="fn-selection" id="fn-selection">ยังไม่ได้เลือกกรอบ</p>
+            <button type="button" id="fn-blur-btn" disabled>เบลอบริเวณที่เลือก</button>
+          </article>
+
+          <article class="fn-tool" id="fn-tool-objects" hidden>
+            <p>ตั้งค่าสีที่ต้องการหา แล้วกดปุ่มด้านล่าง</p>
+
+            <div class="form-group">
+              <label for="fn-hue">สีที่ต้องการหา (องศาบนวงล้อสี 0-359)</label>
+              <input type="number" id="fn-hue" value="50" min="0" max="359" />
+            </div>
+
+            <div class="form-group">
+              <label for="fn-tolerance">ยอมให้เพี้ยนได้กี่องศา</label>
+              <input type="number" id="fn-tolerance" value="20" min="1" max="180" />
+            </div>
+
+            <div class="form-group">
+              <label for="fn-min-area">ข้ามวัตถุที่เล็กกว่า (พิกเซล)</label>
+              <input type="number" id="fn-min-area" value="200" min="0" />
+            </div>
+
+            <button type="button" id="fn-objects-btn" disabled>หาวัตถุในภาพ</button>
+            <p class="fn-result" id="fn-objects-result" hidden></p>
+          </article>
+
+          <div class="fn-tool__footer">
+            <button type="button" class="fn-secondary" id="fn-reset" disabled>คืนภาพต้นฉบับ</button>
+            <button type="button" class="fn-secondary" id="fn-change-image">เปลี่ยนภาพ</button>
           </div>
-
-          <p class="fn-selection" id="fn-selection">ยังไม่ได้เลือกกรอบ</p>
-          <button type="button" id="fn-blur-btn" disabled>เบลอบริเวณที่เลือก</button>
-        </article>
-
-        <article class="fn-tool">
-          <h2>2. ตีกรอบวัตถุ</h2>
-          <p>หาวัตถุที่มีสีใกล้เคียงกับสีที่เลือก แล้วตีกรอบให้</p>
-
-          <div class="form-group">
-            <label for="fn-hue">สีที่ต้องการหา (องศาบนวงล้อสี 0-359)</label>
-            <input type="number" id="fn-hue" value="50" min="0" max="359" />
-          </div>
-
-          <div class="form-group">
-            <label for="fn-tolerance">ยอมให้เพี้ยนได้กี่องศา</label>
-            <input type="number" id="fn-tolerance" value="20" min="1" max="180" />
-          </div>
-
-          <div class="form-group">
-            <label for="fn-min-area">ข้ามวัตถุที่เล็กกว่า (พิกเซล)</label>
-            <input type="number" id="fn-min-area" value="200" min="0" />
-          </div>
-
-          <button type="button" id="fn-objects-btn" disabled>หาวัตถุในภาพ</button>
-          <p class="fn-result" id="fn-objects-result" hidden></p>
-        </article>
-      </section>
-    </div>
+        </div>
+      </div>
+    </section>
   </main>
 
   <script src="../js/csrf.js"></script>
