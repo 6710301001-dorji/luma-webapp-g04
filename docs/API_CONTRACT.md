@@ -323,11 +323,11 @@ img2img. Response fields remain `images` and `seed_used`.
 | 2 | คน 1 ↔ คน 2 | `GET /api/assets` รับ param อะไร ตอบรูปแบบไหน | ✅ **ตกลงแล้ว (25 ก.ย.)**: `?tags=portrait,anime` คั่นด้วย comma · ความหมายคือ AND (intersection) ต้องมีครบทุก tag ที่ระบุ · ไม่พบภาพตอบ `{items: [], page: 1, per_page: 20, total: 0}` พร้อม 200 · tag ไม่มีในระบบตอบ 200 items ว่าง (ไม่ตอบ 400) · `page`/`per_page`/`q` รองรับแล้ว · ต้อง login + เห็นเฉพาะของตัวเอง (ภาพคนอื่นได้ 404) |
 | 3 | คน 1 ↔ คน 3 | `POST /api/generate` ตอบแบบ sync หรือ queued | ⬜ |
 | 4 | คน 1 ↔ คน 3 | เส้นทาง `/pipeline/<stage>/<operation>` | ⬜ |
-| 5 | **คน 2 ↔ คน 3** | **รูปแบบ auto-tag ที่ `04_features` ส่งให้ Asset Hub** | 🟨 เสนอให้ tag เป็น string แบน · เหตุผลแยกต่างหาก · ไม่มี score/namespace — รอคนที่ 2 ยืนยันใน PR (#17, #65) |
+| 5 | **คน 2 ↔ คน 3** | **รูปแบบ auto-tag ที่ `04_features` ส่งให้ Asset Hub** | ✅ **ตกลงแล้ว (26 ก.ย.)**: tag เป็น string แบนใน `metrics.auto_tags` · เหตุผลแยกใน `metrics.auto_tag_reasons` · ไม่มี score/namespace (#17, #65) |
 | 6 | คน 1 ↔ คน 3 | ตาราง `jobs` ใครเขียน ใครอ่าน | ⬜ |
 | 7 | ทุกคน | ชื่อ env var ทั้งหมด | ⬜ |
 
-### ข้อ 5 — ข้อเสนอ auto-tag ที่รอคนที่ 2 ยืนยัน
+### ข้อ 5 — auto-tag ที่ตกลงแล้ว
 
 `POST /pipeline/04_features/auto_tag` ส่งชื่อ tag เป็น **array ของ string แบบแบน**
 ใน `metrics.auto_tags` และส่งเหตุผลแยกตามชื่อใน `metrics.auto_tag_reasons`:
