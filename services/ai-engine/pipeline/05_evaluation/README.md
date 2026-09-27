@@ -160,3 +160,11 @@ excluded because their redistribution is restricted.
 
 **Lecture 1 หน้า 10–13** วางลำดับการทำวิจัยไว้: **Algorithm → Experiment → Conclusion**
 โมดูลนี้คือขั้น Experiment และ Conclusion ของโครงงาน
+
+## Classification evaluation tooling (#201, labels pending)
+
+`classification_metrics.py` computes per-tag confusion counts, accuracy,
+precision, recall and F1 with micro/macro summaries for the existing ten auto-tags.
+Unknown labels are excluded; undefined ratios remain null. The CLI and proposed
+annotation guide are in `../../samples/classification/README.md`.
+The candidate sheet is unreviewed: classification evidence is not complete yet.
