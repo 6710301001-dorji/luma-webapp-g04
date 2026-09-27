@@ -537,3 +537,22 @@ def test_failed_backup_never_deletes_an_uploads_folder_it_did_not_create(db_file
             backup(db_file, backups)
 
     assert (existing / "keep.png").read_bytes() == b"someone else's file"
+
+
+# --- หลัง restore ต้องบอกให้เปลี่ยน SECRET_KEY -----------------------------------
+# cookie ที่ผู้ใช้ถืออยู่ก่อน restore ยังเซ็นด้วย key เดิม จึงยังใช้ได้หลัง restore
+# แต่ข้อมูลในฐานถูกย้อนกลับไปแล้ว — เปลี่ยน key แล้วรีสตาร์ท ให้ทุกคนล็อกอินใหม่
+
+def test_restore_command_says_to_change_secret_key(db_file, tmp_path, capsys):
+    # INPUT: ไฟล์ backup ของฐานปกติ (revision ล่าสุด) — คำเตือนต้องขึ้นทุกครั้ง ไม่ใช่แค่ฐานเก่า
+    saved = backup(db_file, tmp_path / "backups")
+
+    # PROCESS: สั่ง restore ผ่าน main() แบบเดียวกับที่คนพิมพ์ในเทอร์มินัล
+    with patch.object(db_backup, "default_db_path", lambda: db_file):
+        result = db_backup.main(["restore", str(saved)])
+
+    # OUTPUT: ข้อความที่พิมพ์ออกหน้าจอต้องบอกว่าต้องทำอะไร และสร้าง key ใหม่ยังไง
+    output = capsys.readouterr().out
+    assert result == 0
+    assert "SECRET_KEY" in output
+    assert "token_hex" in output

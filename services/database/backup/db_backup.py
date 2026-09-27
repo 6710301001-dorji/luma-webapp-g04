@@ -13,6 +13,7 @@ db_backup.py — สำรอง (backup) และกู้คืน (restore) 
 
 ⚠️ ก่อน restore ให้หยุด Flask ก่อนเสมอ — restore เขียนทับฐานข้อมูลปัจจุบันทั้งก้อน
 ⚠️ ถ้าไม่แน่ใจ ให้ backup ของปัจจุบันไว้ 1 รอบก่อน แล้วค่อย restore
+⚠️ หลัง restore ให้เปลี่ยน SECRET_KEY แล้วรีสตาร์ท backend (สคริปต์จะพิมพ์บอกวิธี)
 
 
 ทำไมไม่ copy ไฟล์ .db ตรงๆ
@@ -252,6 +253,11 @@ def main(args):
         print("restore แล้ว จาก:", args[1])
         if safety:
             print("สำเนาก่อน restore (ย้อนกลับได้):", safety)
+        # เตือนทุกครั้งที่ restore สำเร็จ — cookie ที่ผู้ใช้ถืออยู่ยังเซ็นด้วย key เดิม
+        # แต่ข้อมูลในฐานถูกย้อนกลับไปแล้ว ต้องเปลี่ยน key ให้ทุกคนล็อกอินใหม่
+        print("⚠️ ต้องเปลี่ยน SECRET_KEY ใน services/backend/instance/config.py")
+        print('   สร้างค่าใหม่: python -c "import secrets; print(secrets.token_hex(32))"')
+        print("   แล้วรีสตาร์ท backend · ผู้ใช้ทุกคนต้องล็อกอินใหม่")
         return 0
     print(__doc__)
     return 1
