@@ -11,6 +11,7 @@ MUST ของ #59 ที่ไฟล์นี้ครอบ
 """
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -24,9 +25,17 @@ NODE = shutil.which("node")
 pytestmark = pytest.mark.skipif(NODE is None, reason="ต้องมี node ถึงจะรัน JS ได้")
 
 
-def _run(scenario: str) -> dict:
+def _run(scenario: str, tz: str | None = None, created_at: str | None = None) -> dict:
+    env = None
+    if tz or created_at:
+        env = {**os.environ}
+        if tz:
+            env["TZ"] = tz
+        if created_at:
+            env["CREATED_AT"] = created_at
     out = subprocess.run(
         [NODE, str(HERE / "gallery_tags_harness.js"), scenario, str(JS / "gallery.js")],
+        env=env,
         # node พิมพ์ UTF-8 เสมอ — ไม่ระบุ encoding จะ decode ตาม locale (cp874) แล้วข้อความไทยพัง
         capture_output=True, text=True, encoding="utf-8", timeout=30)
     assert out.returncode == 0, out.stderr
@@ -181,3 +190,39 @@ def test_page_still_works_when_the_tags_endpoint_fails():
     assert result["errorHidden"] is True, "ต้องไม่ขึ้นข้อความ error"
     # ตัวสำรอง: ปุ่มที่สะสมจากแท็กของภาพในหน้ายังต้องมี
     assert sorted(result["chipNames"]) == ["anime", "landscape", "nature", "portrait"]
+
+def test_created_at_is_read_as_utc_not_local_time():
+    """[กรณีทดสอบ]: ภาพที่สร้าง 20:30 UTC (= 03:30 น. ของวันถัดไปที่ไทย) ต้องแสดงวันถัดไป (#177)
+
+    backend ส่ง created_at เป็น UTC แบบไม่มี offset เพราะ SQLite ตัดทิ้ง
+    `new Date("2026-09-26T20:30:00")` ที่ไม่มี Z จะถูกตีความว่าเป็นเวลาท้องถิ่น
+    หน้าเว็บจึงแสดง 26 แทนที่จะเป็น 27 — โผล่เฉพาะภาพที่สร้าง 00:00-06:59
+    จึงไม่มีใครเห็นตอนทดสอบกลางวัน
+    """
+    result = _run("date_utc", tz="Asia/Bangkok", created_at="2026-09-26T20:30:00")
+    assert result["dates"], "ต้องมีวันที่แสดงบนการ์ด"
+    for text in result["dates"]:
+        assert text == "27/9/2569", f"ควรเป็น 27/9/2569 (พ.ศ.) แต่ได้ {text}"
+
+
+def test_daytime_images_still_show_the_same_date():
+    """[กรณีทดสอบ]: ภาพที่สร้างกลางวัน (08:00 UTC = 15:00 น. ที่ไทย) ต้องแสดงวันเดิม (#177)
+
+    กันไม่ให้ตัวแก้ของ #177 เผลอเลื่อนวันของภาพส่วนใหญ่ที่เคยแสดงถูกอยู่แล้ว
+    """
+    result = _run("date_utc", tz="Asia/Bangkok", created_at="2026-09-26T08:00:00")
+    assert result["dates"], "ต้องมีวันที่แสดงบนการ์ด"
+    for text in result["dates"]:
+        assert text == "26/9/2569", f"ควรเป็น 26/9/2569 แต่ได้ {text}"
+
+
+def test_timestamp_that_already_has_an_offset_is_not_broken():
+    """[กรณีทดสอบ]: ถ้า backend ส่ง offset มาให้แล้ว ต้องไม่เติม Z ทับจนพาร์สไม่ออก
+
+    models/asset.py เขียนไว้ว่าถ้าย้ายไป PostgreSQL จะใช้ TIMESTAMPTZ ซึ่งเก็บ offset
+    ติดมาด้วย — ตัวแก้จึงต้องเช็คก่อนว่ามี offset อยู่แล้วหรือยัง
+    """
+    result = _run("date_utc", tz="Asia/Bangkok", created_at="2026-09-26T20:30:00+00:00")
+    assert result["dates"], "ต้องพาร์สออกและแสดงวันที่ ไม่ใช่ Invalid Date"
+    for text in result["dates"]:
+        assert text == "27/9/2569", f"ควรเป็น 27/9/2569 แต่ได้ {text}"

@@ -18,10 +18,11 @@ for (const [k, v] of Object.entries({ prompt: "a fox", negative_prompt: "", step
   sampler_name: "Euler a", seed: "-1", width: "512", height: "512" })) form[k] = { value: v };
 const n = { "generate-form": form };
 for (const id of ["generate-submit", "generate-error", "generate-spinner", "preview-container", "preview-image",
-  "preview-placeholder", "preview-meta", "meta-asset-id", "meta-prompt"]) n[id] = el();
+  "preview-placeholder", "preview-meta", "meta-asset-id", "meta-prompt", "meta-info"]) n[id] = el();
 n["generate-error"].attrs.hidden = "";
 
-const polls = { done: ["pending", "running", "done"], failed: ["pending", "running", "failed"] }[scenario] || [];
+const polls = { done: ["pending", "running", "done"], no_seed: ["pending", "running", "done"],
+  failed: ["pending", "running", "failed"] }[scenario] || [];
 const calls = [];
 const spinnerTexts = [];
 const reply = (status, body) => ({ ok: status < 400, status, json: async () => body });
@@ -34,7 +35,11 @@ const fetch = async (url, opts = {}) => {
   }
   const status = polls.shift();
   spinnerTexts.push(n["generate-spinner"].textContent);
-  if (status === "done") return reply(200, { status, asset_id: 30, image_url: "/api/assets/30/image", error: null });
+  if (status === "done") {
+    // seed_used คือเลขที่ Forge ใช้จริง (#174) — scenario no_seed จำลองตอน Forge ไม่แจ้งกลับมา
+    const seed_used = scenario === "no_seed" ? null : 4122904511;   // no-secret-check (นี่คือเลข seed)
+    return reply(200, { status, asset_id: 30, image_url: "/api/assets/30/image", seed_used, error: null });
+  }
   if (status === "failed") return reply(200, { status, asset_id: null, image_url: null, error: "เชื่อมต่อ AI engine ไม่สำเร็จ / Could not reach AI engine" });
   return reply(200, { status, asset_id: null, image_url: null, error: null });
 };
@@ -55,6 +60,8 @@ vm.runInContext(fs.readFileSync(scriptPath, "utf8"), ctx);
     spinner_texts: spinnerTexts,
     image_src: n["preview-image"].src,
     asset_id: n["meta-asset-id"].textContent,
+    meta_info: n["meta-info"].textContent,
+    seed_in_form: form.seed.value,
     error: "hidden" in n["generate-error"].attrs ? null : n["generate-error"].textContent,
     button_disabled: n["generate-submit"].disabled,
   }));
