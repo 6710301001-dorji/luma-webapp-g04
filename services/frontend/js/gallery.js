@@ -173,6 +173,20 @@
       if (clearBtn) clearBtn.hidden = currentTags.length === 0 && !currentQuery;
     }
 
+    /** ต่อท้าย Z ให้เวลาที่ไม่มี offset — backend ส่ง created_at เป็น UTC แบบไม่มี offset
+     *  เพราะ SQLite ตัดทิ้งตอนเขียน (ดู models/asset.py utcnow)
+     *
+     *  new Date("2026-09-26T20:30:00") ที่ไม่มี Z จะถูกตีความว่าเป็น "เวลาท้องถิ่น"
+     *  เวลานั้นคือ 03:30 ของวันที่ 27 ตามเวลาไทย แต่หน้าเว็บจะแสดงวันที่ 26 ผิดไปหนึ่งวัน
+     *  โผล่เฉพาะภาพที่สร้างช่วง 00:00-06:59 จึงไม่มีใครเห็นตอนทดสอบกลางวัน
+     *
+     *  เช็ค offset ก่อนต่อ เพราะ asset.py เขียนไว้ว่าพอย้ายไป PostgreSQL แล้ว
+     *  คอลัมน์จะเป็น TIMESTAMPTZ ซึ่งเก็บ offset จริง ต่อ Z ซ้ำจะพังทันที
+     */
+    function asUtc(value) {
+      return /(Z|[+-]\d{2}:?\d{2})$/.test(value) ? value : `${value}Z`;
+    }
+
     function createAssetCard(item) {
       const card = document.createElement("div");
       card.className = "asset-card";
@@ -214,7 +228,7 @@
 
       const dateEl = document.createElement("span");
       if (item.created_at) {
-        const d = new Date(item.created_at);
+        const d = new Date(asUtc(item.created_at));
         dateEl.textContent = `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear() + 543}`;
       } else {
         dateEl.textContent = "-";
