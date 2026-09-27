@@ -72,6 +72,15 @@ def create_app(config_overrides: dict | None = None) -> Flask:
         FORGE_TIMEOUT_SECONDS=120,
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
+        # เพดานขนาด request — ต้องเป็นค่าเริ่มต้น ไม่ใช่มีแค่ใน config.py.example
+        # เครื่องที่ไม่ได้ copy config.py มาจะไม่มีเพดานเลย (Flask default = None)
+        # แล้ว body ขนาดเท่าไหร่ก็ถูกรับเข้ามาจนหมดก่อนถึงจะถูกปฏิเสธที่ชั้นอื่น
+        #
+        # ที่มาของ 32 MB: img2img โหมด inpaint ส่งสองภาพ (ต้นฉบับ + mask)
+        # ภาพละไม่เกิน 10 MB ตาม IMG2IMG_MAX_BYTES · base64 โตขึ้น ~33%
+        # 10 x 2 x 1.33 + JSON ~= 28 MB จึงตั้ง 32 MB เผื่อไว้
+        # ตรงกับ client_max_body_size 30m ของ Nginx (deploy/nginx/luma.conf)
+        MAX_CONTENT_LENGTH=32 * 1024 * 1024,
     )
 
     # 2. โหลดค่าคอนฟิกจาก instance/config.py (ถ้ามี)
@@ -167,6 +176,15 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     @app.errorhandler(429)
     def ratelimit_handler(error):
         return jsonify({"error": "คำขอถี่เกินกำหนด กรุณารอสักครู่ / Too many requests"}), 429
+
+    @app.errorhandler(413)
+    def request_too_large(error):
+        # Flask โยน RequestEntityTooLarge เองเมื่อ body เกิน MAX_CONTENT_LENGTH
+        # ถ้าไม่ดัก จะได้หน้า HTML ซึ่ง res.json() ฝั่งหน้าเว็บอ่านไม่ได้ แล้ว error หายเงียบ
+        limit_mb = app.config["MAX_CONTENT_LENGTH"] // (1024 * 1024)
+        return jsonify({
+            "error": f"คำขอใหญ่เกิน {limit_mb} MB / Request larger than {limit_mb} MB"
+        }), 413
 
     @app.errorhandler(500)
     def internal_server_error(error):

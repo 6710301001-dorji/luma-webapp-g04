@@ -252,3 +252,44 @@ if __name__ == "__main__":
     print("-" * 60)
     print(f"📊 ผลรวม: ผ่าน {passed}/{len(tests)} การทดสอบ")
     print("=" * 60 + "\n")
+
+
+# ---------------------------------------------- เพดานขนาด request (#179)
+
+def test_request_size_limit_exists_without_instance_config():
+    """[กรณีทดสอบ]: เครื่องที่ไม่ได้ copy config.py มาก็ต้องมีเพดาน ไม่ใช่รับ body ไม่จำกัด
+
+    Flask ตั้ง MAX_CONTENT_LENGTH = None มาให้ ถ้าไม่ตั้งเอง body 60 MB ก็ถูกรับ
+    เข้ามาจนหมดแล้วส่งต่อไป ai-engine (@boss2912 เห็นใน log จริง)
+    """
+    app = create_app({"TESTING": True, "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:"})
+    assert app.config["MAX_CONTENT_LENGTH"] == 32 * 1024 * 1024
+
+
+def test_oversized_request_returns_json_not_html():
+    """[กรณีทดสอบ]: body เกินเพดานต้องได้ 413 เป็น JSON ไม่ใช่หน้า HTML ของ Flask
+
+    หน้าเว็บอ่านด้วย res.json() ถ้าได้ HTML มา error จะหายเงียบ ผู้ใช้ไม่รู้ว่าเกิดอะไร
+    """
+    app = create_app({"TESTING": True, "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:"})
+    client = app.test_client()
+
+    too_big = b"A" * (33 * 1024 * 1024)
+    res = client.post("/api/pipeline/palette/extract", data=too_big,
+                      content_type="application/json")
+
+    assert res.status_code == 413
+    assert res.is_json, f"ต้องเป็น JSON แต่ได้ {res.content_type}"
+    assert "error" in res.get_json()
+    assert "32" in res.get_json()["error"]
+
+
+def test_limit_is_above_what_inpaint_actually_sends():
+    """[กรณีทดสอบ]: เพดานต้องสูงกว่าที่ inpaint ส่งจริง ไม่งั้นปฏิเสธคำขอที่ถูกต้อง
+
+    inpaint ส่งสองภาพ ภาพละไม่เกิน 10 MB (IMG2IMG_MAX_BYTES) เป็น base64 ซึ่งโตขึ้น ~33%
+    -> ~28 MB · config.py.example เคยตั้ง 16 MB ซึ่งต่ำกว่านี้
+    """
+    app = create_app({"TESTING": True, "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:"})
+    inpaint_worst_case = 10 * 1024 * 1024 * 2 * 4 // 3
+    assert app.config["MAX_CONTENT_LENGTH"] > inpaint_worst_case
