@@ -12,7 +12,8 @@ function el(attrs = {}) {
     set innerHTML(v) { if (v === "") this.children = []; }, get innerHTML() { return ""; },
     setAttribute(k, v) { this.attrs[k] = v; }, removeAttribute(k) { delete this.attrs[k]; },
     appendChild(c) { this.children.push(c); }, addEventListener(t, fn) { handlers[t] = fn; },
-    fire(t, e = {}) { return handlers[t](e); },
+    fire(t, e = {}) { return handlers[t] ? handlers[t](e) : undefined; },
+    has(t) { return Boolean(handlers[t]); },
   };
 }
 
@@ -45,7 +46,27 @@ async function seed() {
   return { seed: sent.seed };
 }
 
+// #173 — ช่อง seed ต้องรีเซ็ตค่าที่ใช้ไม่ได้กลับเป็น -1 ตอนออกจากช่อง
+async function seedClamp() {
+  const form = el();
+  const values = { prompt: "cat", negative_prompt: "", steps: "20", cfg_scale: "8", sampler_name: "Euler a", seed: "0", width: "512", height: "512" };
+  for (const [k, v] of Object.entries(values)) form[k] = { value: v };
+  const seedInput = el();
+  const nodes = { "generate-form": form, seed: seedInput };
+  for (const id of ["generate-submit", "generate-error", "generate-spinner", "preview-container", "preview-image",
+    "preview-placeholder", "preview-meta", "meta-asset-id", "meta-prompt"]) nodes[id] = el();
+  load(nodes, async () => ({ ok: true, status: 200, json: async () => ({}) }));
+
+  const results = {};
+  for (const typed of ["-5", "-999", "-2", "", "2.5", "abc", "-1", "0", "7", "12345"]) {
+    seedInput.value = typed;
+    seedInput.fire("change");
+    results[typed === "" ? "(ว่าง)" : typed] = String(seedInput.value);
+  }
+  return { bound: seedInput.has("change"), results };
+}
+
 (async () => {
-  const result = await seed();
-  console.log(JSON.stringify(result));
+  const which = process.argv[2] === "seed_clamp" ? await seedClamp() : await seed();
+  console.log(JSON.stringify(which));
 })();
