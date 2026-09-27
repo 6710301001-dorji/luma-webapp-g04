@@ -39,25 +39,31 @@ equivalence within floating-point precision.
 
 ## Real Forge generation time by steps
 
-The real-GPU run used the `cetusMix Whalefall2 [876b4c7ba5]` checkpoint,
-`DPM++ 2M` sampler, Karras scheduler, fixed seed `12345`, and 512×512 output.
-One warm-up generation was excluded. The nine recorded requests used a balanced
-order so 10, 20, and 30 steps each appeared once in the early, middle, and late
-position of a trial. A two-second cooldown between requests was not included in
-the measured latency.
+The real-GPU run used the `counterfeitV30_v30` checkpoint, `DPM++ 2M` sampler,
+Karras scheduler, fixed seed `12345`, and 512×512 output. The AI engine and Forge
+ran on the same Windows 11 machine through localhost, avoiding network-tunnel
+latency. One warm-up generation was excluded. The 25 recorded requests used a
+balanced order across five repeats and step counts from 10 to 50. A two-second
+cooldown between requests was not included in the measured latency.
 
 | Steps | Samples | p50 | p95 | Observed range |
 |---:|---:|---:|---:|---:|
-| 10 | 3 | 13.433 s | 16.001 s | 6.424–16.286 s |
-| 20 | 3 | 11.076 s | 16.730 s | 7.178–17.358 s |
-| 30 | 3 | 15.880 s | 18.737 s | 10.757–19.055 s |
+| 10 | 5 | 1.344 s | 1.373 s | 1.329–1.376 s |
+| 20 | 5 | 2.359 s | 2.389 s | 2.348–2.395 s |
+| 30 | 5 | 3.333 s | 3.339 s | 3.319–3.340 s |
+| 40 | 5 | 4.350 s | 4.388 s | 4.327–4.395 s |
+| 50 | 5 | 5.338 s | 5.388 s | 5.322–5.390 s |
 
 ![Real Forge generation time by diffusion steps](generation_by_steps.png)
 
-The 30-step setting was slowest overall and p95 increased with the step count.
-The 10-step and 20-step distributions overlap, and their p50 values are not
-monotonic. These requests crossed a public Gradio tunnel to a remote GPU,
-so network and GPU load are material sources of variation; the result should not
-be presented as a precise linear scaling law. The final recorded trials required
-no retries. Raw values, summary values, and run settings are stored beside this
+Generation time increased by about **0.100 seconds per step** on this GPU. A
+linear fit over all 25 requests gives `time = 0.100 × steps + 0.351 seconds`, with
+R² = **0.9997**. Every repeat remained within 0.07 seconds of the others, and the
+recorded trials required no retries. These timings describe this particular
+model, machine, and image size; they are evidence of the relationship between
+steps and processing time rather than a universal speed claim.
+
+An earlier run through a public Gradio tunnel was rejected because request order
+explained the latency better than step count. This local measurement replaces
+that data. Raw values, summary values, and run settings are stored beside this
 report in the corresponding `generation_by_steps_*` files.
