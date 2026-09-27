@@ -16,6 +16,22 @@ from app.services.ai_engine_client import (
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
+# sampler ที่รับได้ (#180) — Forge ไม่ปฏิเสธชื่อที่ไม่รู้จัก มันเงียบๆ เปลี่ยนไปใช้
+# DPM++ 2M/Karras แทน ผู้ใช้จึงเข้าใจผิดว่าได้ภาพจาก sampler ที่ขอ ต้องปัดตกที่นี่
+#
+# สี่ตัวแรกคือทั้งหมดใน dropdown ของ generate.html
+# สามตัวถัดมาเป็นชื่อแบบ Karras ที่ ai-engine แปลงเป็น sampler + scheduler ให้
+# (LEGACY_KARRAS_SAMPLERS ใน services/ai-engine/app.py)
+# สามตัวท้ายคือชื่อธรรมดาที่การแปลงนั้นใช้ — ผู้ใช้ส่งมาตรงๆ ก็ต้องรับ
+#
+# จะเพิ่มตัวใหม่ต้องเพิ่ม option ใน generate.html ด้วย ไม่งั้นมีแต่คนที่ยิง API
+# ตรงถึงจะใช้ได้ และต้องทดลองกับ Forge จริงก่อนว่าไม่ถูกเปลี่ยนเงียบๆ อีก
+SUPPORTED_SAMPLERS = (
+    "DPM++ 2M Karras", "Euler a", "Euler", "DDIM",
+    "DPM++ SDE Karras", "DPM++ 2M SDE Karras",
+    "DPM++ 2M", "DPM++ SDE", "DPM++ 2M SDE",
+)
+
 
 @api_bp.route("/ping", methods=["GET"])
 def ping():
@@ -59,6 +75,9 @@ def _parse_generation_params(data: dict, default_width: int = 512, default_heigh
     sampler_name = data.get("sampler_name", "DPM++ 2M Karras")
     if not isinstance(sampler_name, str):
         return bad("sampler_name ต้องเป็นข้อความ / sampler_name must be a string")
+    if sampler_name not in SUPPORTED_SAMPLERS:
+        return bad(f"sampler_name ต้องเป็นหนึ่งใน: {', '.join(SUPPORTED_SAMPLERS)} "
+                   f"/ sampler_name must be one of the supported samplers")
 
     try:
         seed = int(data.get("seed", -1))
