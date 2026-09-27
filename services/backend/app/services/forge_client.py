@@ -106,8 +106,7 @@ def _call_ai_engine(path: str, payload: dict, seed: int) -> tuple[str, int]:
         current_app.logger.error("AI engine ที่ %s ตอบกลับด้วยสถานะ %s", endpoint, response.status_code)
         # ai-engine ตอบ 504 เมื่อ Forge ตอบช้าเกินกำหนด (#20) — ส่งต่อให้ผู้ใช้รู้ว่าช้า ไม่ใช่ล่ม
         raise ForgeClientError(
-            f"AI engine ตอบกลับด้วยสถานะ {response.status_code} "
-            f"/ AI engine returned status {response.status_code}",
+            _describe_engine_failure(response),
             status_code=504 if response.status_code == 504 else 502,
         )
 
@@ -131,6 +130,44 @@ def _call_ai_engine(path: str, payload: dict, seed: int) -> tuple[str, int]:
 
     relative_path = save_base64_image(img_b64)
     return relative_path, seed_used
+
+
+def _describe_engine_failure(response) -> str:
+    """แปลงคำตอบที่ไม่ใช่ 200 ของ ai-engine เป็นข้อความที่บอกได้ว่าใครล่ม (#180)
+
+    เดิมบอกแค่ "AI engine ตอบกลับด้วยสถานะ 502" ซึ่งอ่านแล้วเข้าใจว่า ai-engine เจ๊ง
+    ทั้งที่กรณีที่เจอบ่อยที่สุดคือ ai-engine ปกติ แต่ Forge ไม่ได้เปิด — คนละที่กันเลย
+    ทำให้ไปไล่หาปัญหาผิดจุด
+
+    ai-engine ส่งเหตุผลมาใน body อยู่แล้ว (app.py: jsonify({"error": str(exc)}))
+    แต่ backend ทิ้งไปใช้แค่ status code เลยเอามาใช้ให้คุ้ม
+
+    ข้อความจาก ai-engine เป็นภาษาอังกฤษและเขียนไว้ให้ dev อ่าน จึงไม่ยกมาทั้งก้อน
+    แค่ดูว่าพูดถึง Forge ไหมแล้วเขียนข้อความไทยของเราเอง
+    """
+    detail = ""
+    try:
+        body = response.json()
+        if isinstance(body, dict) and isinstance(body.get("error"), str):
+            detail = body["error"]
+    except ValueError:
+        pass
+
+    if "forge" in detail.lower():
+        if response.status_code == 504:
+            return ("ระบบสร้างภาพ (Forge) ตอบช้าเกินกำหนด ลองลด Steps หรือขนาดภาพ "
+                    "/ Forge timed out")
+        return ("ระบบสร้างภาพ (Forge) ไม่ตอบ — AI engine ทำงานปกติแต่ต่อไปหา Forge ไม่ได้ "
+                "ตรวจว่า Forge เปิดอยู่และ FORGE_URL ของ ai-engine ถูกต้อง "
+                "/ Forge is not responding")
+
+    if not detail:
+        return (f"AI engine ตอบกลับด้วยสถานะ {response.status_code} "
+                f"/ AI engine returned status {response.status_code}")
+
+    # ai-engine ปัดตกเอง (เช่น FORGE_URL is not configured) — ไม่ใช่เรื่องของ Forge
+    return (f"AI engine ปฏิเสธคำขอ: {detail} "
+            f"/ AI engine rejected the request: {detail}")
 
 
 def save_base64_image(b64_str: str) -> str:
