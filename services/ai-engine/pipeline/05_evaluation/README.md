@@ -20,7 +20,7 @@
 - [ ] dynamic range เพิ่มขึ้นเท่าไร
 - [ ] contrast `(Imax−Imin)/(Imax+Imin)` ก่อน/หลัง
 - [ ] **PSNR** / **SSIM** เทียบกับภาพอ้างอิง (สำหรับงาน denoise/restore)
-- [ ] เวลาที่ใช้ต่อภาพ — เทียบ box filter แบบ 2D กับแบบ separable (Lecture 5 หน้า 26–27)
+- [x] เวลาที่ใช้ต่อภาพ — เทียบ box filter แบบ 2D กับแบบ separable (Lecture 5 หน้า 26–27)
       **นี่เป็นการวัดที่พิสูจน์ทฤษฎีในสไลด์ได้ตรงๆ**
 
 **Segmentation (`03`)**
@@ -36,8 +36,8 @@
 
 โปรเจกต์นี้เป็น distributed system การวัดจึงรวมเรื่องระบบด้วย
 
-- [ ] เวลาตอบสนองแต่ละ endpoint (p50 / p95)
-- [ ] เวลา generate ภาพผ่าน Forge AI (เทียบตาม `steps` — Lecture 2 หน้า 7 บอกว่า
+- [x] เวลาตอบสนองแต่ละ endpoint (p50 / p95)
+- [x] เวลา generate ภาพผ่าน Forge AI (เทียบตาม `steps` — Lecture 2 หน้า 7 บอกว่า
       step มากขึ้น = compute มากขึ้น = ใช้เวลานานขึ้น **วัดให้เห็นจริง**)
 - [ ] ระบบรับผู้ใช้พร้อมกันได้กี่คนก่อนจะช้าลง
       → v1 ยิง Forge แบบ synchronous บล็อก 120 วิ ทำให้คนที่ 2 ต้องรอ
@@ -75,6 +75,27 @@ The script compares the synchronous AI response with the backend's immediate
 queued `202`, polls each job through `done`, and saves raw trials, p50/p95
 tables, metadata, and a labeled graph. Use the same mock delay for the two
 paths. Mock timing proves queue behavior but does not prove GPU performance.
+
+To record the remaining successful user-facing endpoints, run the local mock
+Forge without a delay, the AI engine, and the backend on a database created by
+the Alembic migration chain. Then run:
+
+```bash
+python services/ai-engine/pipeline/05_evaluation/benchmark_baseline.py \
+  --output services/ai-engine/samples/benchmark \
+  --backend-url http://127.0.0.1:5000 \
+  --measure-endpoints --repeats 10 --endpoint-image-size 512
+```
+
+This sends a representative 512×512 blurred-noise PNG through one excluded
+warm-up and ten measured requests to `/api/img2img`,
+`/api/assets`, `/api/pipeline/blur-region`, `/api/pipeline/find-objects`, and
+`/api/pipeline/palette/extract`. The order rotates between trials so every route
+occupies every position twice. The saved CSVs and labeled graph report p50 and
+p95 for valid responses. The pipeline routes execute the real local algorithms;
+the mock Forge keeps img2img timing independent of public-network latency.
+Use `--endpoint-image-size 1024` for a second run at the largest supported
+generation size.
 
 When real Forge is available, add `--measure-real-steps`. This separately
 measures generation at 10, 20, and 30 steps and verifies that every response
