@@ -145,6 +145,19 @@
 
     form.addEventListener("submit", handleGenerateSubmit);
 
+    // ค่า seed ที่ต่ำกว่า -1 หรือไม่ใช่จำนวนเต็ม -> กลับเป็น -1 (สุ่ม) ตั้งแต่ตอนออกจากช่อง
+    // ผูกกับ "change" ไม่ใช่ "input" — "input" ยิงทุกครั้งที่กดแป้น พอพิมพ์ "-" ตัวแรก
+    // ค่ายังไม่ใช่ตัวเลข จะถูกรีเซ็ตทันทีจนพิมพ์ "-1" ไม่ได้เลย
+    const seedInput = document.getElementById("seed");
+    if (seedInput) {
+      seedInput.addEventListener("change", () => {
+        const typed = Number(seedInput.value);
+        if (seedInput.value === "" || !Number.isInteger(typed) || typed < -1) {
+          seedInput.value = -1;
+        }
+      });
+    }
+
     function showError(message) {
       errorBox.textContent = message;
       errorBox.removeAttribute("hidden");

@@ -64,6 +64,11 @@ def _parse_generation_params(data: dict, default_width: int = 512, default_heigh
         seed = int(data.get("seed", -1))
     except (ValueError, TypeError):
         return bad("seed ต้องเป็นตัวเลขจำนวนเต็ม / seed must be an integer")
+    # ai-engine ปฏิเสธ seed < -1 (app.py:273, :359) — ถ้าไม่ดักที่นี่ งานจะเข้าคิวไปแล้ว
+    # ค่อยล้มทีหลัง ผู้ใช้เห็นแค่ "AI engine ตอบกลับด้วยสถานะ 400" ซึ่งไม่บอกว่าตัวเองกรอกอะไรผิด
+    if seed < -1:
+        return bad("seed ต้องเป็น -1 (สุ่ม) หรือจำนวนเต็มตั้งแต่ 0 ขึ้นไป "
+                   "/ seed must be -1 (random) or a non-negative integer")
 
     try:
         width = int(data.get("width", default_width))
