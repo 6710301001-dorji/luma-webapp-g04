@@ -287,15 +287,35 @@ img2img. Response fields remain `images` and `seed_used`.
 
 ### `POST /pipeline/<stage>/<operation>`
 
-| stage | operation ตัวอย่าง |
-|---|---|
-| `01_acquisition` | `metadata` · `validate` · `fov` |
-| `02_enhancement` | `histogram` · `gamma` · `equalize` · `contrast_stretch` · `blur` · `median` |
-| `03_segmentation` | `remove_background` · `selective_color` · `contours` |
-| `04_features` | `statistics` · `color_palette` · `auto_tag` |
-| `05_evaluation` | `psnr` · `ssim` · `iou` |
+⚠️ **ตารางนี้เคยเขียนไว้ 18 route แต่มี route จริงแค่ 4 ตัว (#175)** — คนอ่านเข้าใจผิดว่า
+`selective_color`/`equalize`/ฯลฯ เรียกได้ เหมือนที่ `canvas.js` เคยเรียก `remove_bg` ที่ไม่มี
+ใครทำแล้วได้ 404 เงียบๆ มาก่อนแล้ว (#101) ตรวจซ้ำด้วย:
+```python
+from app import create_app
+sorted(r.rule for r in create_app().url_map.iter_rules() if "pipeline" in r.rule)
+```
 
-**รูปแบบร่วม**
+**มี route จริง (เรียกแล้วไม่ 404)**
+
+| stage/operation | ฟังก์ชันที่เรียก |
+|---|---|
+| `02_enhancement/blur` | `pipeline/02_enhancement/spatial_filters.py` |
+| `03_segmentation/contours` | `pipeline/03_segmentation/segmentation.py` (`find_objects`) |
+| `04_features/color_palette` | `pipeline/04_features/color_palette.py` |
+| `04_features/auto_tag` | `pipeline/04_features/auto_tag.py` |
+
+**มีฟังก์ชันใน `pipeline/` แล้ว มี unit test ผ่าน แต่ยังไม่มี route ผูกให้เรียกผ่าน HTTP**
+(อย่าเรียกจาก backend/frontend — จะได้ 404)
+
+| stage | ฟังก์ชันที่มีอยู่ (ยังไม่มี route) |
+|---|---|
+| `01_acquisition` | `image_metadata` · `validate_image_file` · `field_of_view` (`acquisition.py`) |
+| `02_enhancement` | `histogram` · `statistics` · `assess_quality` (`histogram.py`) · `gamma` · `log_transform` · `contrast_stretch` (`point_operations.py`) · `median` (`spatial_filters.py`) · `equalize` · `match_histogram` (`histogram_mapping.py`) |
+| `03_segmentation` | `remove_background` · `selective_color_mask` (`segmentation.py`) |
+| `04_features` | `extract` (`feature_vector.py`) — เวกเตอร์คุณลักษณะ ไม่ใช่ statistics ตัวเดียว |
+| `05_evaluation` | `image_quality` (PSNR/SSIM, `quality_metrics.py`) · `segmentation_quality` (IoU, `segmentation_metrics.py`) |
+
+**รูปแบบร่วม (สำหรับ route ที่มีจริงด้านบน)**
 ```json
 // request
 { "image": "<base64>", "params": { "gamma": 2.2 } }
@@ -305,6 +325,8 @@ img2img. Response fields remain `images` and `seed_used`.
 ```
 
 > `metrics` มีทุก response — ใช้ต่อใน `05_evaluation` และทำให้ตาราง before/after สร้างได้อัตโนมัติ
+> (ตอนนี้ยังไม่มี endpoint ไหนเรียกฟังก์ชันของ `05_evaluation` ตรงๆ ผ่าน HTTP — ใช้จาก
+> `pipeline/05_evaluation/benchmark_baseline.py` และเทสเท่านั้น)
 
 #### Function page routes (Issue #163)
 
@@ -352,13 +374,13 @@ img2img. Response fields remain `images` and `seed_used`.
 
 | # | ระหว่าง | เรื่อง | สถานะ |
 |---|---|---|---|
-| 1 | คน 1 ↔ คน 2 | ชื่อตาราง/คอลัมน์สุดท้าย | ⬜ |
+| 1 | คน 1 ↔ คน 2 | ชื่อตาราง/คอลัมน์สุดท้าย | ✅ **ทำแล้ว**: 5 migration ใน [`services/database/migrations/versions/`](../services/database/migrations/versions/) (`assets` → `users` → `users` unique/nocase → `jobs` → `tags`+`asset_tags`) โมเดลใน `services/backend/app/models/` ตรงกับ schema ที่ migration สร้างจริง |
 | 2 | คน 1 ↔ คน 2 | `GET /api/assets` รับ param อะไร ตอบรูปแบบไหน | ✅ **ตกลงแล้ว (25 ก.ย.)**: `?tags=portrait,anime` คั่นด้วย comma · ความหมายคือ AND (intersection) ต้องมีครบทุก tag ที่ระบุ · ไม่พบภาพตอบ `{items: [], page: 1, per_page: 20, total: 0}` พร้อม 200 · tag ไม่มีในระบบตอบ 200 items ว่าง (ไม่ตอบ 400) · `page`/`per_page`/`q` รองรับแล้ว · ต้อง login + เห็นเฉพาะของตัวเอง (ภาพคนอื่นได้ 404) |
-| 3 | คน 1 ↔ คน 3 | `POST /api/generate` ตอบแบบ sync หรือ queued | ⬜ |
-| 4 | คน 1 ↔ คน 3 | เส้นทาง `/pipeline/<stage>/<operation>` | ⬜ |
+| 3 | คน 1 ↔ คน 3 | `POST /api/generate` ตอบแบบ sync หรือ queued | ✅ **ทำแล้ว**: queued — ตอบ **202** ทันที `{status:"queued", job_id}` แล้ว poll `GET /api/jobs/<id>` ดูตัวอย่างเต็มด้านบน (หัวข้อ "ตอบกลับ" ใต้ `POST /api/generate`) และ [`services/backend/app/services/job_queue.py`](../services/backend/app/services/job_queue.py) |
+| 4 | คน 1 ↔ คน 3 | เส้นทาง `/pipeline/<stage>/<operation>` | ✅ **ทำแล้ว (บางส่วน)**: 4 จาก 18 operation มี route จริง ที่เหลือมีฟังก์ชันรออยู่ใน `pipeline/` — ดูตารางแยก "มี route จริง" / "ยังไม่มี route" ด้านบน (#175) |
 | 5 | **คน 2 ↔ คน 3** | **รูปแบบ auto-tag ที่ `04_features` ส่งให้ Asset Hub** | ✅ **ตกลงแล้ว (26 ก.ย.)**: tag เป็น string แบนใน `metrics.auto_tags` · เหตุผลแยกใน `metrics.auto_tag_reasons` · ไม่มี score/namespace (#17, #65) |
-| 6 | คน 1 ↔ คน 3 | ตาราง `jobs` ใครเขียน ใครอ่าน | ⬜ |
-| 7 | ทุกคน | ชื่อ env var ทั้งหมด | ⬜ |
+| 6 | คน 1 ↔ คน 3 | ตาราง `jobs` ใครเขียน ใครอ่าน | ✅ **ทำแล้ว**: backend ถือคิวเองทั้งหมด (claim งานแบบ atomic, worker thread เดียวใน `run.py`) ai-engine ไม่แตะตาราง `jobs` เลย รับแค่ request/response ธรรมดา — รายละเอียดใน docstring ของ [`services/backend/app/services/job_queue.py`](../services/backend/app/services/job_queue.py) |
+| 7 | ทุกคน | ชื่อ env var ทั้งหมด | ✅ **ทำแล้ว**: [`docs/ARCHITECTURE.md` ข้อ 7](ARCHITECTURE.md#7-config-และ-environment-variable) (#175) |
 
 ### ข้อ 5 — auto-tag ที่ตกลงแล้ว
 
