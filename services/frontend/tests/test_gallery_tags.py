@@ -42,10 +42,15 @@ def _run(scenario: str, tz: str | None = None, created_at: str | None = None) ->
     return json.loads(out.stdout.strip().splitlines()[-1])
 
 
-def test_first_load_lists_every_tag_it_has_seen():
-    """[กรณีทดสอบ]: เปิดหน้ามาต้องเห็นปุ่มแท็กจากภาพที่โหลดมา เรียงตามตัวอักษร"""
+def test_first_load_lists_every_tag_from_the_tags_endpoint():
+    """[กรณีทดสอบ]: เปิดหน้ามาต้องเห็นปุ่มแท็กครบ เรียงจำนวนภาพมาก->น้อย (#178)
+
+    เดิมเรียงตามตัวอักษรเพราะปุ่มสร้างจากแท็กของภาพในหน้าที่เปิดอยู่
+    ตอนนี้ลำดับมาจาก GET /api/tags ซึ่ง backend เรียงด้วย COUNT มาแล้ว
+    portrait 4 ภาพ · anime 3 · landscape 2 · nature 2 (เท่ากันเรียงตามตัวอักษร)
+    """
     result = _run("first_load")
-    assert result["chipNames"] == ["anime", "landscape", "nature", "portrait"]
+    assert result["chipNames"] == ["portrait", "anime", "landscape", "nature"]
     assert result["active"] == []
     assert result["cards"] == 6
 
@@ -153,6 +158,38 @@ def test_rapid_clicks_do_not_stack_results_on_top_of_each_other():
     # ถ้าไม่มีตัวกันคำขอซ้อน คำขอ portrait ที่ตอบช้ากว่าจะมา append ทีหลัง แล้วได้ 4 ใบ
     assert result["cards"] == 0, "ต้องเห็นผลของคำขอล่าสุดเท่านั้น ไม่ใช่ผลของคำขอเก่าที่ตอบช้ากว่า"
 
+
+def test_tag_that_has_no_asset_on_this_page_is_still_clickable():
+    """[กรณีทดสอบ]: แท็กที่ไม่มีภาพในหน้าที่เปิดอยู่ ต้องยังมีปุ่มให้กด (MUST ของ #178)
+
+    นี่คืออาการที่ boss เจอกับบัญชี demo: 25 ภาพหน้าละ 12 ปุ่ม anime ไม่โผล่เลย
+    เพราะภาพ anime อยู่หน้าหลังทั้งหมด ปุ่มจึงต้องมาจาก GET /api/tags ไม่ใช่จากภาพในหน้า
+    """
+    result = _run("tag_only_on_another_page")
+    assert sorted(result["pageOneTags"]) == ["anime", "portrait"], "setup ต้องให้หน้า 1 ไม่มีสองแท็กนั้นจริง"
+    assert "landscape" in result["chipNames"], "แท็กที่มีแต่ในหน้า 2 ต้องยังมีปุ่มให้กด"
+    assert "nature" in result["chipNames"]
+
+
+def test_tags_endpoint_is_requested_once_on_load():
+    """[กรณีทดสอบ]: ยิง GET /api/tags ครั้งเดียวตอนเปิดหน้า ไม่ใช่ทุกครั้งที่เปลี่ยนหน้า
+
+    รายการแท็กไม่ขึ้นกับหน้าที่เปิดอยู่ ยิงซ้ำทุกครั้งคือเปลืองรอบเครือข่ายเปล่า
+    """
+    result = _run("tag_two")
+    assert len(result["tagRequests"]) == 1, f"ยิงไป {len(result['tagRequests'])} ครั้ง"
+
+
+def test_page_still_works_when_the_tags_endpoint_fails():
+    """[กรณีทดสอบ]: /api/tags ตอบ 500 -> ภาพต้องยังแสดง และปุ่มจากภาพในหน้ายังใช้ได้
+
+    รายการแท็กเป็นของเสริม ไม่ควรทำให้หน้าที่โหลดภาพสำเร็จแล้วขึ้น error บัง
+    """
+    result = _run("tags_endpoint_down")
+    assert result["cards"] == 6, "ภาพต้องยังแสดงครบ"
+    assert result["errorHidden"] is True, "ต้องไม่ขึ้นข้อความ error"
+    # ตัวสำรอง: ปุ่มที่สะสมจากแท็กของภาพในหน้ายังต้องมี
+    assert sorted(result["chipNames"]) == ["anime", "landscape", "nature", "portrait"]
 
 def test_created_at_is_read_as_utc_not_local_time():
     """[กรณีทดสอบ]: ภาพที่สร้าง 20:30 UTC (= 03:30 น. ของวันถัดไปที่ไทย) ต้องแสดงวันถัดไป (#177)
