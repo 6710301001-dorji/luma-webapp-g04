@@ -34,3 +34,29 @@ def test_latency_summary_reports_percentiles():
 def test_latency_summary_rejects_unusable_samples(samples):
     with pytest.raises(ValueError):
         benchmark.latency_summary(samples)
+
+
+def test_generation_trials_balance_step_counts_across_positions():
+    order = benchmark.generation_trial_order((10, 20, 30), repeats=3)
+
+    assert order == [
+        (1, 1, 10), (1, 2, 20), (1, 3, 30),
+        (2, 1, 20), (2, 2, 30), (2, 3, 10),
+        (3, 1, 30), (3, 2, 10), (3, 3, 20),
+    ]
+    for step_count in (10, 20, 30):
+        positions = [position for _, position, step in order if step == step_count]
+        assert sorted(positions) == [1, 2, 3]
+
+
+@pytest.mark.parametrize(("steps", "repeats"), [
+    ((), 3),
+    ((10, 10), 3),
+    ((True, 20), 3),
+    ((0, 20), 3),
+    ((10, 20), 0),
+    ((10, 20), True),
+])
+def test_generation_trial_order_rejects_invalid_inputs(steps, repeats):
+    with pytest.raises(ValueError):
+        benchmark.generation_trial_order(steps, repeats)

@@ -37,10 +37,33 @@ the equivalent separable implementation took 0.816 ms median, a **16.28× measur
 speedup**. The maximum output difference was 0.0000763, confirming numerical
 equivalence within floating-point precision.
 
-## Remaining measurement
+## Real Forge generation time by steps
 
-The required graph of generation time versus diffusion `steps` still needs a
-reachable real Forge/GPU model. Mock Forge applies a fixed delay independent of
-`steps`, so using it for that graph would not measure the required relationship.
-Run the benchmark with `--measure-real-steps` when Forge is available and record
-the model, sampler, scheduler, and GPU beside the result.
+The real-GPU run used the `counterfeitV30_v30` checkpoint, `DPM++ 2M` sampler,
+Karras scheduler, fixed seed `12345`, and 512×512 output. The AI engine and Forge
+ran on the same Windows 11 machine through localhost, avoiding network-tunnel
+latency. One warm-up generation was excluded. The 25 recorded requests used a
+balanced order across five repeats and step counts from 10 to 50. A two-second
+cooldown between requests was not included in the measured latency.
+
+| Steps | Samples | p50 | p95 | Observed range |
+|---:|---:|---:|---:|---:|
+| 10 | 5 | 1.344 s | 1.373 s | 1.329–1.376 s |
+| 20 | 5 | 2.359 s | 2.389 s | 2.348–2.395 s |
+| 30 | 5 | 3.333 s | 3.339 s | 3.319–3.340 s |
+| 40 | 5 | 4.350 s | 4.388 s | 4.327–4.395 s |
+| 50 | 5 | 5.338 s | 5.388 s | 5.322–5.390 s |
+
+![Real Forge generation time by diffusion steps](generation_by_steps.png)
+
+Generation time increased by about **0.100 seconds per step** on this GPU. A
+linear fit over all 25 requests gives `time = 0.100 × steps + 0.351 seconds`, with
+R² = **0.9997**. Every repeat remained within 0.07 seconds of the others, and the
+recorded trials required no retries. These timings describe this particular
+model, machine, and image size; they are evidence of the relationship between
+steps and processing time rather than a universal speed claim.
+
+An earlier run through a public Gradio tunnel was rejected because request order
+explained the latency better than step count. This local measurement replaces
+that data. Raw values, summary values, and run settings are stored beside this
+report in the corresponding `generation_by_steps_*` files.

@@ -114,34 +114,66 @@ def record_filter_baseline(output_dir, image_size=1024, kernel_size=15, repeats=
     return result
 
 
+def generation_trial_order(steps, repeats):
+    """Return a cyclic order so each step count occupies each trial position."""
+    if (not steps or len(set(steps)) != len(steps)
+            or any(isinstance(step, bool) or not isinstance(step, int) or step < 1
+                   for step in steps)):
+        raise ValueError("steps must contain unique positive integers")
+    if isinstance(repeats, bool) or not isinstance(repeats, int) or repeats < 1:
+        raise ValueError("repeats must be a positive integer")
+    steps = tuple(steps)
+    return [
+        (trial + 1, position + 1, steps[(trial + position) % len(steps)])
+        for trial in range(repeats)
+        for position in range(len(steps))
+    ]
+
+
 def record_generation_baseline(output_dir, ai_url, steps=(10, 20, 30), repeats=3,
                                sampler_name="DPM++ 2M", scheduler="Karras",
-                               forge_model="record when running"):
+                               forge_model="record when running", max_attempts=3,
+                               cooldown_seconds=2.0):
     """Measure real HTTP generation by step count; never use mock results as GPU evidence."""
     output_dir.mkdir(parents=True, exist_ok=True)
     endpoint = ai_url.rstrip("/") + "/forge/txt2img"
     rows = []
 
+    if isinstance(max_attempts, bool) or not isinstance(max_attempts, int) or max_attempts < 1:
+        raise ValueError("max_attempts must be a positive integer")
+    if cooldown_seconds < 0:
+        raise ValueError("cooldown_seconds must be nonnegative")
+
     def generate(step_count):
-        start = perf_counter()
-        response = requests.post(endpoint, json={
-            "prompt": "a small tree", "steps": step_count, "seed": 12345,
-            "width": 512, "height": 512, "sampler_name": sampler_name,
-            "scheduler": scheduler,
-        }, timeout=180)
-        elapsed = perf_counter() - start
-        response.raise_for_status()
-        result = response.json()
-        if not result.get("images") or not isinstance(result.get("seed_used"), int):
-            raise ValueError("AI engine did not return an image and seed_used")
-        return elapsed
+        for attempt in range(1, max_attempts + 1):
+            start = perf_counter()
+            try:
+                response = requests.post(endpoint, json={
+                    "prompt": "a small tree", "steps": step_count, "seed": 12345,
+                    "width": 512, "height": 512, "sampler_name": sampler_name,
+                    "scheduler": scheduler,
+                }, timeout=180)
+                elapsed = perf_counter() - start
+                response.raise_for_status()
+                result = response.json()
+                if not result.get("images") or not isinstance(result.get("seed_used"), int):
+                    raise ValueError("AI engine did not return an image and seed_used")
+                threading.Event().wait(cooldown_seconds)
+                return elapsed, attempt - 1
+            except requests.RequestException:
+                if attempt == max_attempts:
+                    raise
+                threading.Event().wait(max(5.0, cooldown_seconds))
 
-    for step_count in steps:
-        for trial in range(1, repeats + 1):
-            rows.append({"mode": "single", "steps": step_count, "trial": trial,
-                         "latency_s": generate(step_count)})
+    trial_order = generation_trial_order(steps, repeats)
+    generate(steps[0])  # Exclude model loading and first-request compilation from the trials.
+    for trial, position, step_count in trial_order:
+        latency, retries = generate(step_count)
+        rows.append({"mode": "single", "steps": step_count, "trial": trial,
+                     "position": position, "retries": retries, "latency_s": latency})
 
-    _write_csv(output_dir / "generation_by_steps_raw.csv", rows, ["mode", "steps", "trial", "latency_s"])
+    _write_csv(output_dir / "generation_by_steps_raw.csv", rows,
+               ["mode", "steps", "trial", "position", "retries", "latency_s"])
     summary = []
     for step_count in steps:
         samples = [row["latency_s"] for row in rows if row["mode"] == "single" and row["steps"] == step_count]
@@ -161,6 +193,10 @@ def record_generation_baseline(output_dir, ai_url, steps=(10, 20, 30), repeats=3
     (output_dir / "generation_by_steps_metadata.json").write_text(json.dumps({
         "recorded_at_utc": datetime.now(timezone.utc).isoformat(),
         "endpoint": endpoint, "mode": "real_forge_steps", "repeats_per_step": repeats,
+        "warmup_steps": steps[0],
+        "trial_order": [step_count for _, _, step_count in trial_order],
+        "max_attempts": max_attempts, "cooldown_seconds": cooldown_seconds,
+        "successful_trial_retries": sum(row["retries"] for row in rows),
         "sampler_name": sampler_name, "scheduler": scheduler, "forge_model": forge_model,
         "machine": platform.platform(), "python": platform.python_version(),
         "note": "These values are valid only when ai-engine points to a real Forge/GPU model.",
