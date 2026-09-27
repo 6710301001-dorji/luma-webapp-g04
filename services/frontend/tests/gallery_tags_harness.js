@@ -50,7 +50,12 @@ function query(params) {
     "gallery-tags", "gallery-clear-btn"]) nodes[id] = el();
 
   const requests = [];
+  const tagRequests = [];
   const urlHistory = [];
+  // scenario tags_endpoint_down: จำลอง endpoint ล่ม เพื่อดูว่าหน้ายังใช้ได้อยู่
+  const tagsReply = scenario === "tags_endpoint_down"
+    ? { ok: false, status: 500, json: async () => ({ error: "boom" }) }
+    : null;
   const start = scenario === "url_initial" ? "?page=2&q=anime&tags=portrait" : "";
 
   const location = {
@@ -75,13 +80,31 @@ function query(params) {
     URL, URLSearchParams, console: { error() {}, log() {} }, alert() {}, setTimeout,
     fetch: async (url) => {
       const parsed = new URL(String(url));
+      // GET /api/tags (#178) — แท็กทั้งหมดของผู้ใช้ เรียงจำนวนภาพมาก->น้อย เหมือน backend
+      // ไม่ขึ้นกับว่าเปิดหน้าไหนอยู่ จึงนับจาก ASSETS ทั้งชุด
+      if (parsed.pathname.endsWith("/api/tags")) {
+        tagRequests.push(String(url));
+        if (tagsReply) return tagsReply;
+        const counts = new Map();
+        ASSETS.forEach((a) => a.tags.forEach((n) => counts.set(n, (counts.get(n) || 0) + 1)));
+        const items = [...counts.entries()]
+          .map(([name, asset_count]) => ({ name, asset_count }))
+          .sort((a, b) => b.asset_count - a.asset_count || a.name.localeCompare(b.name));
+        return { ok: true, status: 200, json: async () => ({ items, total: items.length }) };
+      }
       requests.push(String(url));
       // scenario rapid_clicks: ให้คำขอแรกตอบช้ากว่าคำขอที่สอง เพื่อจำลองการกดรัว
       if (scenario === "rapid_clicks" && requests.length === 2) {
         await new Promise((r) => setTimeout(r, 30));
       }
-      const items = query(parsed.searchParams);
-      return { ok: true, status: 200, json: async () => ({ items, page: Number(parsed.searchParams.get("page")) || 1, total: items.length }) };
+      const all = query(parsed.searchParams);
+      const page = Number(parsed.searchParams.get("page")) || 1;
+      // scenario tag_only_on_another_page: แบ่งหน้าจริงหน้าละ 3 ใบ ให้หน้า 1 มีแต่ภาพ
+      // portrait/anime — landscape กับ nature อยู่หน้า 2 เหมือนอาการจริงของ #178
+      const items = scenario === "tag_only_on_another_page"
+        ? all.slice((page - 1) * 3, page * 3)
+        : all;
+      return { ok: true, status: 200, json: async () => ({ items, page, total: all.length }) };
     },
     document: { readyState: "complete", getElementById: (id) => nodes[id] || null, createElement: () => el() },
   };
@@ -101,6 +124,7 @@ function query(params) {
 
   const report = (extra) => console.log(JSON.stringify({
     requests,
+    tagRequests,
     last: lastRequest(),
     urlHistory,
     chipNames: chips().map((c) => c.dataset.tag),
@@ -108,11 +132,17 @@ function query(params) {
     cards: nodes["gallery-grid"].children.length,
     empty: nodes["gallery-empty"].textContent,
     emptyHidden: "hidden" in nodes["gallery-empty"].attrs,
+    errorHidden: "hidden" in nodes["gallery-error"].attrs,
     clearHidden: nodes["gallery-clear-btn"].hidden,
     ...extra,
   }));
 
-  if (scenario === "first_load") return report({});
+  if (scenario === "first_load" || scenario === "tags_endpoint_down") return report({});
+
+  if (scenario === "tag_only_on_another_page") {
+    // หน้า 1 ได้แค่ภาพ 3 ใบแรก (portrait+anime) — landscape กับ nature อยู่หน้า 2
+    return report({ pageOneTags: [...new Set(ASSETS.slice(0, 3).flatMap((a) => a.tags))] });
+  }
 
   if (scenario === "tag_click") {
     await click("portrait");
