@@ -23,9 +23,12 @@
   // นับรอบไว้ แล้วรับเฉพาะผลของรอบล่าสุดเท่านั้น
   let requestId = 0;
 
-  // tag ที่เคยเห็นจากภาพที่โหลดมาแล้ว — สะสมไว้เพื่อให้ปุ่มไม่หายตอนเปลี่ยนหน้า
-  // (ยังไม่มี endpoint ที่บอกว่าผู้ใช้มี tag อะไรบ้าง ดู #59)
+  // tag ที่เคยเห็นจากภาพที่โหลดมาแล้ว — ใช้เป็นตัวสำรองเวลา GET /api/tags ล้ม
+  // และรองรับแท็กของภาพที่เพิ่งสร้างใหม่หลังจากโหลดรายการแท็กไปแล้ว
   const knownTags = new Set();
+
+  // ลำดับแท็กจาก GET /api/tags — เรียงจำนวนภาพมาก->น้อย มาจาก backend แล้ว (#178)
+  let tagOrder = [];
 
   function initGallery() {
     const grid = document.getElementById("gallery-grid");
@@ -146,12 +149,38 @@
       return "ยังไม่มีรูปภาพในคลังผลงาน เริ่มต้นสร้างภาพได้ที่หน้าสร้างภาพ";
     }
 
+    /** ขอรายการแท็กทั้งหมดของผู้ใช้จาก backend (#178)
+     *
+     *  เดิมปุ่มตัวกรองสร้างจากแท็กของภาพ "ในหน้าที่เปิดอยู่" เท่านั้น แท็กที่มีแต่ใน
+     *  หน้าหลังจึงกดเลือกไม่ได้ เช่นบัญชี demo 25 ภาพ หน้าละ 12 จะไม่มีปุ่ม anime เลย
+     *
+     *  ถ้าคำขอนี้ล้ม ไม่ต้องขึ้น error ให้ผู้ใช้เห็น เพราะปุ่มที่สะสมจากภาพในหน้า
+     *  ยังใช้ได้อยู่ — เสียแค่แท็กของหน้าอื่น ไม่ควรบังภาพที่โหลดสำเร็จแล้ว
+     */
+    async function loadTags() {
+      try {
+        const url = new URL(`${API_BASE}/api/tags`, window.location.origin);
+        const res = await fetch(url.toString());
+        if (!res.ok) return;
+        const data = await res.json();
+        tagOrder = (data.items || []).map((item) => item.name);
+        renderTagFilter();
+      } catch (err) {
+        console.error("Gallery tag list error:", err);
+      }
+    }
+
     /** ปุ่มแท็กให้กดเลือกได้หลายอัน — กดซ้ำคือยกเลิก */
     function renderTagFilter() {
       if (!tagBox) return;
       // แท็กที่เลือกอยู่ต้องแสดงเสมอ แม้หน้านี้จะไม่มีภาพที่ใช้แท็กนั้น
       // ไม่งั้นพอกรองจนไม่เหลือภาพ ปุ่มจะหายแล้วกดยกเลิกไม่ได้
-      const names = [...new Set([...knownTags, ...currentTags])].sort();
+      // ลำดับจาก /api/tags มาก่อน (จำนวนภาพมาก->น้อย) แท็กที่ไม่อยู่ในนั้นต่อท้ายแบบเรียงตัวอักษร
+      // — เป็นแท็กของภาพที่เพิ่งสร้าง หรือแท็กที่เลือกอยู่แต่ไม่มีภาพไหนใช้แล้ว
+      const all = new Set([...knownTags, ...currentTags, ...tagOrder]);
+      const ordered = tagOrder.filter((name) => all.has(name));
+      const rest = [...all].filter((name) => !tagOrder.includes(name)).sort();
+      const names = [...ordered, ...rest];
       tagBox.innerHTML = "";
       names.forEach((name) => {
         const btn = document.createElement("button");
@@ -171,6 +200,20 @@
         tagBox.appendChild(btn);
       });
       if (clearBtn) clearBtn.hidden = currentTags.length === 0 && !currentQuery;
+    }
+
+    /** ต่อท้าย Z ให้เวลาที่ไม่มี offset — backend ส่ง created_at เป็น UTC แบบไม่มี offset
+     *  เพราะ SQLite ตัดทิ้งตอนเขียน (ดู models/asset.py utcnow)
+     *
+     *  new Date("2026-09-26T20:30:00") ที่ไม่มี Z จะถูกตีความว่าเป็น "เวลาท้องถิ่น"
+     *  เวลานั้นคือ 03:30 ของวันที่ 27 ตามเวลาไทย แต่หน้าเว็บจะแสดงวันที่ 26 ผิดไปหนึ่งวัน
+     *  โผล่เฉพาะภาพที่สร้างช่วง 00:00-06:59 จึงไม่มีใครเห็นตอนทดสอบกลางวัน
+     *
+     *  เช็ค offset ก่อนต่อ เพราะ asset.py เขียนไว้ว่าพอย้ายไป PostgreSQL แล้ว
+     *  คอลัมน์จะเป็น TIMESTAMPTZ ซึ่งเก็บ offset จริง ต่อ Z ซ้ำจะพังทันที
+     */
+    function asUtc(value) {
+      return /(Z|[+-]\d{2}:?\d{2})$/.test(value) ? value : `${value}Z`;
     }
 
     function createAssetCard(item) {
@@ -214,7 +257,7 @@
 
       const dateEl = document.createElement("span");
       if (item.created_at) {
-        const d = new Date(item.created_at);
+        const d = new Date(asUtc(item.created_at));
         dateEl.textContent = `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear() + 543}`;
       } else {
         dateEl.textContent = "-";
@@ -318,6 +361,7 @@
     const initial = readUrl();
     if (searchInput) searchInput.value = initial.query;
     loadAssets(initial.page, initial.query, initial.tags, { replaceUrl: true });
+    loadTags();
   }
 
   if (document.readyState === "loading") {

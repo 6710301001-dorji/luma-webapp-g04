@@ -33,6 +33,11 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
   const list = { items: [{ id: 7, prompt: "a cat", image_url: "/api/assets/7/image", created_at: null }], page: 1, total: 1 };
 
   const fetch = async (url, opts = {}) => {
+    // รายการแท็ก (#178) เป็นคำขอแยกที่ยิงตอนเปิดหน้า ไม่นับรวมใน calls
+    // เพราะเทสในไฟล์นี้ตรวจเรื่องการลบภาพ ไม่ได้ตรวจตัวกรองแท็ก
+    if (String(url).includes("/api/tags")) {
+      return { ok: true, status: 200, json: async () => ({ items: [], total: 0 }) };
+    }
     calls.push({ url: String(url), method: opts.method || "GET", headers: opts.headers || {} });
     if (opts.method === "DELETE") {
       return { ok: deleteReply.ok, status: deleteReply.status, json: async () => deleteReply.body };

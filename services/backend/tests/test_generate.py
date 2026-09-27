@@ -224,3 +224,27 @@ def test_generate_default_sampler_is_supported():
     client = _logged_in_client()
     with patch("app.services.job_queue.generate_image", return_value=("uploads/x.png", 7)):
         assert client.post("/api/generate", json={"prompt": "cat"}).status_code == 202
+
+def test_generate_rejects_seed_below_minus_one():
+    """[กรณีทดสอบ]: seed ติดลบที่ไม่ใช่ -1 ต้องได้ 400 ตั้งแต่ backend ไม่ใช่ 202 แล้วค่อยล้มในคิว (#173)
+
+    ai-engine ปฏิเสธ seed < -1 อยู่แล้ว (app.py:273) ถ้า backend ปล่อยผ่าน งานจะเข้าคิว
+    ไปแล้วล้มทีหลัง ผู้ใช้เห็นแค่ "AI engine ตอบกลับด้วยสถานะ 400" ซึ่งไม่บอกว่ากรอกอะไรผิด
+    """
+    client = _logged_in_client()
+    for bad_seed in (-2, -5, -999):
+        res = client.post("/api/generate", json={"prompt": "cat", "seed": bad_seed})
+        assert res.status_code == 400, bad_seed
+        assert "seed" in res.get_json()["error"]
+
+    with client.application.app_context():
+        from app.models import Job
+        assert Job.query.count() == 0, "input ผิดต้องไม่สร้างแถว job"
+
+
+def test_generate_still_accepts_minus_one_and_zero_and_positive_seeds():
+    """[กรณีทดสอบ]: -1 (สุ่ม) · 0 · จำนวนเต็มบวก ต้องผ่านเหมือนเดิม"""
+    client = _logged_in_client()
+    for good_seed in (-1, 0, 1, 12345):
+        res = client.post("/api/generate", json={"prompt": "cat", "seed": good_seed})
+        assert res.status_code == 202, good_seed

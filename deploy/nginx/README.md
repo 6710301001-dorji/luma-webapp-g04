@@ -51,6 +51,23 @@ sed -e "s|__FRONTEND_DIR__|$(pwd)/services/frontend|" -e "s|__BACKEND__|127.0.0.
 ข้ามเครื่อง (V5 เต็มรูป) ให้เปลี่ยน `127.0.0.1:5000` เป็น IP ของเครื่อง backend เช่น `192.168.1.20:5000`
 และเครื่องนั้นต้องรัน backend ด้วย `LUMA_HOST=0.0.0.0` ไม่งั้นเครื่องอื่นเรียกไม่ถึง
 
+### เดโมข้ามเครื่อง — เปิด Nginx ให้ทั้งวง Wi-Fi เข้าถึงได้ (#181)
+
+`luma.conf` ผูก `listen` กับ `127.0.0.1` เป็นค่าเริ่มต้น — **เครื่องอื่นในวง Wi-Fi เดียวกัน
+เข้าไม่ได้แม้รันอยู่** (กันไว้เพราะรอบก่อนตั้ง `listen 8080;` เฉยๆ แล้วเผลอเปิดให้ทั้งวง
+เข้าถึงเว็บที่ยังไม่พร้อมโชว์ได้โดยไม่ได้ตั้งใจ)
+
+ตอนเดโมจริงที่ต้องให้เครื่องอื่น (กรรมการ/เพื่อนร่วมทีม) เปิดผ่าน IP ของเครื่องที่รัน Nginx
+ให้แก้ **เฉพาะไฟล์ `luma.local.conf`** (ไม่ใช่ `luma.conf` ที่เป็นแม่แบบ):
+
+```powershell
+$conf = (Get-Content "$here/luma.local.conf" -Raw).Replace('127.0.0.1:8080;', '0.0.0.0:8080;')
+[IO.File]::WriteAllText("$here/luma.local.conf", $conf, (New-Object Text.UTF8Encoding $false))
+```
+
+แล้ว reload (`nginx.exe -p $nginx -s reload`) เครื่องอื่นเปิด `http://<IP เครื่องนี้>:8080` ได้เลย
+ปิดวงกลับด้วยคำสั่งเดิมสลับทิศทาง `.Replace('0.0.0.0:8080;', '127.0.0.1:8080;')` เมื่อเดโมเสร็จ
+
 ## 3. เปิดระบบ (4 หน้าต่าง)
 
 ```powershell
@@ -99,7 +116,7 @@ Nginx เป็นประตูเดียวของระบบ ถ้า�
 
 ```powershell
 $conf = Get-Content "$here/luma.local.conf" -Raw
-$standby = $conf.Replace('listen      8080;', 'listen      8081;').Replace('logs/luma.', 'logs/luma-standby.')
+$standby = $conf.Replace('127.0.0.1:8080;', '127.0.0.1:8081;').Replace('logs/luma.', 'logs/luma-standby.')
 [IO.File]::WriteAllText("$here/luma-standby.local.conf", $standby, (New-Object Text.UTF8Encoding $false))
 ```
 

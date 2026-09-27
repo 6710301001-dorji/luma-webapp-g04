@@ -1,5 +1,6 @@
 """Check that the two timed box-filter paths produce the same image."""
 
+import csv
 import importlib.util
 from pathlib import Path
 
@@ -60,3 +61,92 @@ def test_generation_trials_balance_step_counts_across_positions():
 def test_generation_trial_order_rejects_invalid_inputs(steps, repeats):
     with pytest.raises(ValueError):
         benchmark.generation_trial_order(steps, repeats)
+
+
+class _EndpointResponse:
+    status_code = 200
+    content = b"{}"
+
+    def __init__(self, body):
+        self.body = body
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self.body
+
+
+class _EndpointSession:
+    def __init__(self):
+        self.cookies = {"csrf_token": "benchmark-token"}
+
+    def get(self, url, timeout):
+        assert url.endswith("/api/assets?per_page=20")
+        assert timeout == 10
+        return _EndpointResponse({"items": [], "total": 0})
+
+    def post(self, url, json, headers, timeout):
+        assert headers == {"X-CSRFToken": "benchmark-token"}
+        assert timeout == 10
+        if url.endswith("/api/img2img"):
+            return _EndpointResponse({"status": "success", "asset_id": 1})
+        if url.endswith("/api/pipeline/blur-region"):
+            return _EndpointResponse({"image": "aW1hZ2U="})
+        if url.endswith("/api/pipeline/find-objects"):
+            return _EndpointResponse({"objects": [], "count": 0})
+        if url.endswith("/api/pipeline/palette/extract"):
+            return _EndpointResponse({"colors": ["#ff0000"]})
+        raise AssertionError(f"unexpected endpoint {url}")
+
+
+def test_endpoint_baseline_records_each_route_and_balances_order(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        benchmark,
+        "_authenticated_session",
+        lambda backend_url: _EndpointSession(),
+    )
+
+    summary = benchmark.record_endpoint_baseline(
+        tmp_path,
+        "http://backend.test/",
+        repeats=5,
+        timeout=10,
+        image_size=512,
+    )
+
+    assert len(summary) == 5
+    assert all(row["samples"] == 5 and row["p50_s"] >= 0 for row in summary)
+    with (tmp_path / "endpoint_latency_raw.csv").open(newline="", encoding="utf-8") as source:
+        rows = list(csv.DictReader(source))
+    assert len(rows) == 25
+    assert {row["status_code"] for row in rows} == {"200"}
+    for endpoint in {row["endpoint"] for row in rows}:
+        positions = [int(row["position"]) for row in rows if row["endpoint"] == endpoint]
+        assert sorted(positions) == [1, 2, 3, 4, 5]
+    for filename in (
+        "endpoint_latency_summary.csv",
+        "endpoint_latency_metadata.json",
+        "endpoint_latency.png",
+    ):
+        assert (tmp_path / filename).is_file()
+
+
+@pytest.mark.parametrize(("repeats", "timeout", "image_size"), [
+    (1, 10, 512),
+    (True, 10, 512),
+    (5, 0, 512),
+    (5, True, 512),
+    (5, 10, 32),
+    (5, 10, True),
+])
+def test_endpoint_baseline_rejects_invalid_settings(
+        tmp_path, repeats, timeout, image_size):
+    with pytest.raises(ValueError):
+        benchmark.record_endpoint_baseline(
+            tmp_path,
+            "http://backend.test",
+            repeats=repeats,
+            timeout=timeout,
+            image_size=image_size,
+        )

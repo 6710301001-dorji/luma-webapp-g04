@@ -1,6 +1,7 @@
 """Reproducible filter, queue, and real-Forge generation timing for issue #68."""
 
 import argparse
+import base64
 import csv
 import json
 import platform
@@ -404,6 +405,185 @@ def record_queue_comparison(output_dir, backend_url, ai_url, batches=3,
     return summary
 
 
+def _benchmark_image(image_size):
+    """Return a deterministic blurred-noise PNG with realistic image content."""
+    noise = np.random.default_rng(68).integers(
+        0, 256, (image_size, image_size, 3), dtype=np.uint8)
+    image = cv2.GaussianBlur(noise, (15, 15), 0)
+    encoded, png = cv2.imencode(".png", image)
+    if not encoded:
+        raise ValueError("could not encode the endpoint benchmark image")
+    return base64.b64encode(png.tobytes()).decode("ascii")
+
+
+def record_endpoint_baseline(output_dir, backend_url, repeats=10, timeout=180,
+                             image_size=512):
+    """Measure successful HTTP responses for the five unreported user endpoints."""
+    if isinstance(repeats, bool) or not isinstance(repeats, int) or repeats < 2:
+        raise ValueError("repeats must be an integer of at least 2")
+    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
+        raise ValueError("timeout must be positive")
+    if (isinstance(image_size, bool) or not isinstance(image_size, int)
+            or not 64 <= image_size <= 2048):
+        raise ValueError("image_size must be an integer from 64 to 2048")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    backend = backend_url.rstrip("/")
+    session = _authenticated_session(backend)
+    image = _benchmark_image(image_size)
+    region_start = image_size // 4
+    region_size = image_size // 2
+
+    endpoint_specs = (
+        {
+            "endpoint": "POST /api/img2img",
+            "method": "POST",
+            "path": "/api/img2img",
+            "payload": {
+                "prompt": "endpoint timing image",
+                "init_image": image,
+                "mode": "text",
+                "steps": 20,
+                "seed": 6800,
+            },
+            "valid": lambda body: body.get("status") == "success"
+            and isinstance(body.get("asset_id"), int),
+        },
+        {
+            "endpoint": "GET /api/assets",
+            "method": "GET",
+            "path": "/api/assets?per_page=20",
+            "payload": None,
+            "valid": lambda body: isinstance(body.get("items"), list)
+            and isinstance(body.get("total"), int),
+        },
+        {
+            "endpoint": "POST /api/pipeline/blur-region",
+            "method": "POST",
+            "path": "/api/pipeline/blur-region",
+            "payload": {
+                "image": image,
+                "region": {
+                    "x": region_start,
+                    "y": region_start,
+                    "width": region_size,
+                    "height": region_size,
+                },
+                "size": 15,
+            },
+            "valid": lambda body: isinstance(body.get("image"), str)
+            and bool(body["image"]),
+        },
+        {
+            "endpoint": "POST /api/pipeline/find-objects",
+            "method": "POST",
+            "path": "/api/pipeline/find-objects",
+            "payload": {"image": image},
+            "valid": lambda body: isinstance(body.get("objects"), list)
+            and isinstance(body.get("count"), int),
+        },
+        {
+            "endpoint": "POST /api/pipeline/palette/extract",
+            "method": "POST",
+            "path": "/api/pipeline/palette/extract",
+            "payload": {"image": image},
+            "valid": lambda body: isinstance(body.get("colors"), list)
+            and bool(body["colors"]),
+        },
+    )
+
+    def timed_request(spec):
+        started = perf_counter()
+        if spec["method"] == "GET":
+            response = session.get(backend + spec["path"], timeout=timeout)
+        else:
+            response = session.post(
+                backend + spec["path"],
+                json=spec["payload"],
+                headers=_csrf_headers(session),
+                timeout=timeout,
+            )
+        latency = perf_counter() - started
+        response.raise_for_status()
+        body = response.json()
+        if not isinstance(body, dict) or not spec["valid"](body):
+            raise ValueError(f"{spec['endpoint']} returned an unusable response")
+        return latency, response.status_code, len(response.content)
+
+    for spec in endpoint_specs:
+        timed_request(spec)  # Exclude connection setup and first-call warm-up.
+
+    rows = []
+    for trial in range(repeats):
+        for position in range(len(endpoint_specs)):
+            spec = endpoint_specs[(trial + position) % len(endpoint_specs)]
+            latency, status_code, response_bytes = timed_request(spec)
+            rows.append({
+                "endpoint": spec["endpoint"],
+                "trial": trial + 1,
+                "position": position + 1,
+                "status_code": status_code,
+                "response_bytes": response_bytes,
+                "latency_s": latency,
+            })
+
+    summary = []
+    for spec in endpoint_specs:
+        samples = [
+            row["latency_s"] for row in rows
+            if row["endpoint"] == spec["endpoint"]
+        ]
+        summary.append({"endpoint": spec["endpoint"], **latency_summary(samples)})
+
+    _write_csv(
+        output_dir / "endpoint_latency_raw.csv",
+        rows,
+        ["endpoint", "trial", "position", "status_code", "response_bytes", "latency_s"],
+    )
+    _write_csv(
+        output_dir / "endpoint_latency_summary.csv",
+        summary,
+        ["endpoint", "samples", "min_s", "p50_s", "p95_s", "max_s"],
+    )
+
+    labels = [row["endpoint"].replace("/api/pipeline/", "/api/pipeline/\n") for row in summary]
+    p50_values = [row["p50_s"] for row in summary]
+    p95_differences = [row["p95_s"] - row["p50_s"] for row in summary]
+    figure, axis = plt.subplots(figsize=(9, 5))
+    p95_caps = np.asarray([np.zeros(len(summary)), p95_differences])
+    axis.barh(labels, p50_values, xerr=p95_caps, capsize=5)
+    axis.set(
+        xlabel="HTTP response time (s)",
+        ylabel="Endpoint",
+        title="Successful endpoint response time: p50 with p95 cap",
+    )
+    axis.grid(axis="x", alpha=0.25)
+    figure.tight_layout()
+    figure.savefig(output_dir / "endpoint_latency.png", dpi=160)
+    plt.close(figure)
+
+    metadata = {
+        "recorded_at_utc": datetime.now(timezone.utc).isoformat(),
+        "backend_url": backend,
+        "repeats_per_endpoint": repeats,
+        "warmup_requests_per_endpoint": 1,
+        "timeout_s": timeout,
+        "input_image_px": [image_size, image_size],
+        "img2img_steps": 20,
+        "img2img_seed": 6800,
+        "machine": platform.platform(),
+        "python": platform.python_version(),
+        "note": (
+            "Successful end-to-end HTTP requests through the backend and local AI engine. "
+            "Use a local zero-delay mock Forge so public-network latency does not distort "
+            "backend and image-pipeline endpoint measurements."
+        ),
+    }
+    (output_dir / "endpoint_latency_metadata.json").write_text(
+        json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+    return summary
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
@@ -416,13 +596,18 @@ def main():
     parser.add_argument("--timeout", type=float, default=300)
     parser.add_argument("--measure-real-steps", action="store_true",
                         help="Measure generation time by steps; use only with a real Forge target")
+    parser.add_argument("--measure-endpoints", action="store_true",
+                        help="Measure successful backend endpoint response times")
+    parser.add_argument("--endpoint-image-size", type=int, default=512,
+                        help="Square input size for --measure-endpoints (default: 512)")
     parser.add_argument("--sampler-name", default="DPM++ 2M")
     parser.add_argument("--scheduler", default="Karras")
     parser.add_argument("--forge-model", default="record when running")
     arguments = parser.parse_args()
-    result = record_filter_baseline(arguments.output, repeats=arguments.repeats)
-    print(f"Box filter: {result['speedup']:.2f}x speedup with separable convolution")
-    if arguments.backend_url:
+    if not arguments.measure_endpoints:
+        result = record_filter_baseline(arguments.output, repeats=arguments.repeats)
+        print(f"Box filter: {result['speedup']:.2f}x speedup with separable convolution")
+    if arguments.backend_url and not arguments.measure_endpoints:
         if not arguments.ai_url:
             parser.error("--backend-url requires --ai-url")
         summary = record_queue_comparison(
@@ -431,6 +616,17 @@ def main():
             poll_interval=arguments.poll_interval, timeout=arguments.timeout,
         )
         print(f"Queue: measured {len(summary)} endpoint/completion groups")
+    if arguments.measure_endpoints:
+        if not arguments.backend_url:
+            parser.error("--measure-endpoints requires --backend-url")
+        summary = record_endpoint_baseline(
+            arguments.output,
+            arguments.backend_url,
+            repeats=arguments.repeats,
+            timeout=arguments.timeout,
+            image_size=arguments.endpoint_image_size,
+        )
+        print(f"Endpoints: measured {len(summary)} routes")
     if arguments.measure_real_steps or (arguments.ai_url and not arguments.backend_url):
         if not arguments.ai_url:
             parser.error("--measure-real-steps requires --ai-url")

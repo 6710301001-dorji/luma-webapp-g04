@@ -11,6 +11,7 @@ MUST ของ #59 ที่ไฟล์นี้ครอบ
 """
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -24,19 +25,32 @@ NODE = shutil.which("node")
 pytestmark = pytest.mark.skipif(NODE is None, reason="ต้องมี node ถึงจะรัน JS ได้")
 
 
-def _run(scenario: str) -> dict:
+def _run(scenario: str, tz: str | None = None, created_at: str | None = None) -> dict:
+    env = None
+    if tz or created_at:
+        env = {**os.environ}
+        if tz:
+            env["TZ"] = tz
+        if created_at:
+            env["CREATED_AT"] = created_at
     out = subprocess.run(
         [NODE, str(HERE / "gallery_tags_harness.js"), scenario, str(JS / "gallery.js")],
+        env=env,
         # node พิมพ์ UTF-8 เสมอ — ไม่ระบุ encoding จะ decode ตาม locale (cp874) แล้วข้อความไทยพัง
         capture_output=True, text=True, encoding="utf-8", timeout=30)
     assert out.returncode == 0, out.stderr
     return json.loads(out.stdout.strip().splitlines()[-1])
 
 
-def test_first_load_lists_every_tag_it_has_seen():
-    """[กรณีทดสอบ]: เปิดหน้ามาต้องเห็นปุ่มแท็กจากภาพที่โหลดมา เรียงตามตัวอักษร"""
+def test_first_load_lists_every_tag_from_the_tags_endpoint():
+    """[กรณีทดสอบ]: เปิดหน้ามาต้องเห็นปุ่มแท็กครบ เรียงจำนวนภาพมาก->น้อย (#178)
+
+    เดิมเรียงตามตัวอักษรเพราะปุ่มสร้างจากแท็กของภาพในหน้าที่เปิดอยู่
+    ตอนนี้ลำดับมาจาก GET /api/tags ซึ่ง backend เรียงด้วย COUNT มาแล้ว
+    portrait 4 ภาพ · anime 3 · landscape 2 · nature 2 (เท่ากันเรียงตามตัวอักษร)
+    """
     result = _run("first_load")
-    assert result["chipNames"] == ["anime", "landscape", "nature", "portrait"]
+    assert result["chipNames"] == ["portrait", "anime", "landscape", "nature"]
     assert result["active"] == []
     assert result["cards"] == 6
 
@@ -143,3 +157,72 @@ def test_rapid_clicks_do_not_stack_results_on_top_of_each_other():
     assert sorted(result["active"]) == ["landscape", "portrait"]
     # ถ้าไม่มีตัวกันคำขอซ้อน คำขอ portrait ที่ตอบช้ากว่าจะมา append ทีหลัง แล้วได้ 4 ใบ
     assert result["cards"] == 0, "ต้องเห็นผลของคำขอล่าสุดเท่านั้น ไม่ใช่ผลของคำขอเก่าที่ตอบช้ากว่า"
+
+
+def test_tag_that_has_no_asset_on_this_page_is_still_clickable():
+    """[กรณีทดสอบ]: แท็กที่ไม่มีภาพในหน้าที่เปิดอยู่ ต้องยังมีปุ่มให้กด (MUST ของ #178)
+
+    นี่คืออาการที่ boss เจอกับบัญชี demo: 25 ภาพหน้าละ 12 ปุ่ม anime ไม่โผล่เลย
+    เพราะภาพ anime อยู่หน้าหลังทั้งหมด ปุ่มจึงต้องมาจาก GET /api/tags ไม่ใช่จากภาพในหน้า
+    """
+    result = _run("tag_only_on_another_page")
+    assert sorted(result["pageOneTags"]) == ["anime", "portrait"], "setup ต้องให้หน้า 1 ไม่มีสองแท็กนั้นจริง"
+    assert "landscape" in result["chipNames"], "แท็กที่มีแต่ในหน้า 2 ต้องยังมีปุ่มให้กด"
+    assert "nature" in result["chipNames"]
+
+
+def test_tags_endpoint_is_requested_once_on_load():
+    """[กรณีทดสอบ]: ยิง GET /api/tags ครั้งเดียวตอนเปิดหน้า ไม่ใช่ทุกครั้งที่เปลี่ยนหน้า
+
+    รายการแท็กไม่ขึ้นกับหน้าที่เปิดอยู่ ยิงซ้ำทุกครั้งคือเปลืองรอบเครือข่ายเปล่า
+    """
+    result = _run("tag_two")
+    assert len(result["tagRequests"]) == 1, f"ยิงไป {len(result['tagRequests'])} ครั้ง"
+
+
+def test_page_still_works_when_the_tags_endpoint_fails():
+    """[กรณีทดสอบ]: /api/tags ตอบ 500 -> ภาพต้องยังแสดง และปุ่มจากภาพในหน้ายังใช้ได้
+
+    รายการแท็กเป็นของเสริม ไม่ควรทำให้หน้าที่โหลดภาพสำเร็จแล้วขึ้น error บัง
+    """
+    result = _run("tags_endpoint_down")
+    assert result["cards"] == 6, "ภาพต้องยังแสดงครบ"
+    assert result["errorHidden"] is True, "ต้องไม่ขึ้นข้อความ error"
+    # ตัวสำรอง: ปุ่มที่สะสมจากแท็กของภาพในหน้ายังต้องมี
+    assert sorted(result["chipNames"]) == ["anime", "landscape", "nature", "portrait"]
+
+def test_created_at_is_read_as_utc_not_local_time():
+    """[กรณีทดสอบ]: ภาพที่สร้าง 20:30 UTC (= 03:30 น. ของวันถัดไปที่ไทย) ต้องแสดงวันถัดไป (#177)
+
+    backend ส่ง created_at เป็น UTC แบบไม่มี offset เพราะ SQLite ตัดทิ้ง
+    `new Date("2026-09-26T20:30:00")` ที่ไม่มี Z จะถูกตีความว่าเป็นเวลาท้องถิ่น
+    หน้าเว็บจึงแสดง 26 แทนที่จะเป็น 27 — โผล่เฉพาะภาพที่สร้าง 00:00-06:59
+    จึงไม่มีใครเห็นตอนทดสอบกลางวัน
+    """
+    result = _run("date_utc", tz="Asia/Bangkok", created_at="2026-09-26T20:30:00")
+    assert result["dates"], "ต้องมีวันที่แสดงบนการ์ด"
+    for text in result["dates"]:
+        assert text == "27/9/2569", f"ควรเป็น 27/9/2569 (พ.ศ.) แต่ได้ {text}"
+
+
+def test_daytime_images_still_show_the_same_date():
+    """[กรณีทดสอบ]: ภาพที่สร้างกลางวัน (08:00 UTC = 15:00 น. ที่ไทย) ต้องแสดงวันเดิม (#177)
+
+    กันไม่ให้ตัวแก้ของ #177 เผลอเลื่อนวันของภาพส่วนใหญ่ที่เคยแสดงถูกอยู่แล้ว
+    """
+    result = _run("date_utc", tz="Asia/Bangkok", created_at="2026-09-26T08:00:00")
+    assert result["dates"], "ต้องมีวันที่แสดงบนการ์ด"
+    for text in result["dates"]:
+        assert text == "26/9/2569", f"ควรเป็น 26/9/2569 แต่ได้ {text}"
+
+
+def test_timestamp_that_already_has_an_offset_is_not_broken():
+    """[กรณีทดสอบ]: ถ้า backend ส่ง offset มาให้แล้ว ต้องไม่เติม Z ทับจนพาร์สไม่ออก
+
+    models/asset.py เขียนไว้ว่าถ้าย้ายไป PostgreSQL จะใช้ TIMESTAMPTZ ซึ่งเก็บ offset
+    ติดมาด้วย — ตัวแก้จึงต้องเช็คก่อนว่ามี offset อยู่แล้วหรือยัง
+    """
+    result = _run("date_utc", tz="Asia/Bangkok", created_at="2026-09-26T20:30:00+00:00")
+    assert result["dates"], "ต้องพาร์สออกและแสดงวันที่ ไม่ใช่ Invalid Date"
+    for text in result["dates"]:
+        assert text == "27/9/2569", f"ควรเป็น 27/9/2569 แต่ได้ {text}"

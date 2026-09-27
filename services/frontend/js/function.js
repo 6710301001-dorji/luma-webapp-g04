@@ -228,6 +228,19 @@
     if (dragStart) dragStart = null;
   });
 
+  /** ภาพสะอาดสำหรับส่งไป backend — วาด currentImage ลง canvas ชั่วคราว
+   *
+   *  ห้ามใช้ canvas.toDataURL() ตรงๆ เพราะ redraw() วาดกรอบที่เลือก (ม่วง)
+   *  และกรอบวัตถุ (เขียว) ทับไว้บนนั้น ภาพที่ส่งไปจะมีเส้นติดไปด้วยถาวร
+   */
+  function cleanImageDataUrl() {
+    const off = document.createElement("canvas");
+    off.width = currentImage.naturalWidth;
+    off.height = currentImage.naturalHeight;
+    off.getContext("2d").drawImage(currentImage, 0, 0);
+    return off.toDataURL("image/png");
+  }
+
   async function postJson(path, body) {
     const res = await fetch(`${API_BASE}${path}`, {
       method: "POST",
@@ -250,7 +263,7 @@
     blurBtn.textContent = "กำลังเบลอ...";
     try {
       const data = await postJson("/api/pipeline/blur-region", {
-        image: canvas.toDataURL("image/png"),
+        image: cleanImageDataUrl(),
         region: selection,
         size: Number(document.getElementById("fn-blur-size").value),
       });
@@ -271,7 +284,7 @@
     objectsBtn.textContent = "กำลังหาวัตถุ...";
     try {
       const data = await postJson("/api/pipeline/find-objects", {
-        image: canvas.toDataURL("image/png"),
+        image: cleanImageDataUrl(),
         center_degrees: Number(document.getElementById("fn-hue").value),
         tolerance_degrees: Number(document.getElementById("fn-tolerance").value),
         minimum_area: Number(document.getElementById("fn-min-area").value),
