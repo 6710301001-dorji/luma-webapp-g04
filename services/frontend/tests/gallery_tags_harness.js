@@ -40,7 +40,12 @@ function query(params) {
   const q = (params.get("q") || "").toLowerCase();
   let items = ASSETS.filter((a) => wanted.every((t) => a.tags.includes(t)));
   if (q) items = items.filter((a) => a.prompt.toLowerCase().includes(q));
-  return items.map((a) => ({ ...a, image_url: `/api/assets/${a.id}/image`, created_at: null }));
+  return items.map((a) => ({
+    ...a,
+    image_url: `/api/assets/${a.id}/image`,
+    // backend ส่ง UTC แบบไม่มี offset (SQLite ตัดทิ้ง) — 20:30 UTC = 03:30 ของวันถัดไปที่ไทย
+    created_at: process.env.CREATED_AT || "2026-09-26T20:30:00",
+  }));
 }
 
 (async () => {
@@ -111,6 +116,17 @@ function query(params) {
     clearHidden: nodes["gallery-clear-btn"].hidden,
     ...extra,
   }));
+
+  if (scenario === "date_utc") {
+    // วันที่ที่แสดงบนการ์ด — หา element ที่เป็นข้อความรูปแบบ d/m/yyyy
+    const texts = [];
+    const walk = (node) => {
+      if (typeof node.textContent === "string" && /^\d+\/\d+\/\d{4}$/.test(node.textContent)) texts.push(node.textContent);
+      (node.children || []).forEach(walk);
+    };
+    nodes["gallery-grid"].children.forEach(walk);
+    return console.log(JSON.stringify({ dates: texts, tz: process.env.TZ || "(ตามเครื่อง)" }));
+  }
 
   if (scenario === "first_load") return report({});
 
