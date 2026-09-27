@@ -1,0 +1,26 @@
+{
+  "dataset": "PhotoArt50 204.sunflower, cases 0001\u20130050",
+  "parameters": {
+    "center_degrees": 50,
+    "tolerance_degrees": 20,
+    "saturation_min": 60,
+    "value_min": 40,
+    "kernel_size": 3
+  },
+  "summary": {
+    "case_count": 50,
+    "macro_iou": 0.6609190313773814,
+    "macro_precision": 0.8740274795693775,
+    "macro_recall": 0.7368675510096547,
+    "micro_iou": 0.6736887528739629,
+    "micro_precision": 0.8820217009324218,
+    "micro_recall": 0.7404083583786464,
+    "true_positive": 1375407,
+    "false_positive": 183973,
+    "false_negative": 482226,
+    "true_negative": 1822608
+  },
+  "pre_morphology_pixel_roc_auc": 0.878472972867448,
+  "roc_score": "180 - circular hue distance to 50 degrees; S < 60 or V < 40 gives -1",
+  "source_images_committed": false
+}

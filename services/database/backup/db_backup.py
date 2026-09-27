@@ -172,6 +172,58 @@ def known_revisions():
     return found
 
 
+def latest_revision():
+    """revision ล่าสุดของโปรเจกต์ — คือตัวที่ไม่มี migration ไหนอ้างถึงเป็น down_revision
+
+    migration ต่อกันเป็นสาย: ไฟล์ใหม่บอก down_revision = ไฟล์ก่อนหน้า
+    ตัวท้ายสายจึงเป็นตัวเดียวที่ไม่มีใครชี้กลับมาหา
+    คืน None ถ้าหาตัวเดียวไม่ได้ (เช่นมี migration แตกสาย) — ไม่เดา
+    """
+    versions = DATABASE_DIR / "migrations" / "versions"
+    revisions = set()     # revision ทุกตัว
+    pointed_to = set()    # revision ที่มีไฟล์อื่นอ้างถึงเป็น down_revision
+
+    for file in versions.glob("*.py"):
+        text = file.read_text(encoding="utf-8")
+        revision = re.search(r"^revision\s*=\s*[\"']([^\"']+)[\"']", text, re.MULTILINE)
+        down = re.search(r"^down_revision\s*=\s*[\"']([^\"']+)[\"']", text, re.MULTILINE)
+        if revision:
+            revisions.add(revision.group(1))
+        if down:
+            pointed_to.add(down.group(1))
+
+    last_ones = revisions - pointed_to
+    if len(last_ones) != 1:
+        return None
+    return last_ones.pop()
+
+
+def revision_of(db_path):
+    """revision ที่ฐานข้อมูลนี้อยู่ตอนนี้ อ่านจากตาราง alembic_version"""
+    with closing(sqlite3.connect(db_path)) as conn:
+        row = conn.execute("SELECT version_num FROM alembic_version").fetchone()
+    if row is None:
+        return None
+    return row[0]
+
+
+def upgrade_warning(db_path):
+    """ข้อความเตือนถ้าฐานเก่ากว่าโค้ด (ต้องรัน db upgrade ก่อนเปิดแอป) · ไม่ต้องเตือนคืน None
+
+    ทดลองจริงแล้ว: restore backup ที่ revision เก่าแล้วเปิดแอปเลย -> login ได้ 500
+    "no such table: users" เพราะตารางที่โค้ดใช้ยังไม่ถูกสร้าง
+    """
+    current = revision_of(db_path)
+    latest = latest_revision()
+    if latest is None or current == latest:
+        return None
+    return (
+        f"⚠️ ฐานข้อมูลที่ restore มาอยู่ revision {current} แต่โค้ดตอนนี้ต้องการ {latest}\n"
+        f"   รันคำสั่งนี้ที่ root ของ repo ก่อนเปิดแอป ไม่งั้นแอปจะ error:\n"
+        f"   flask --app services/database/migrate_app db upgrade"
+    )
+
+
 def _check_is_project_db(path):
     """ตรวจเพิ่มว่าเป็นฐานของโปรเจกต์นี้ — ใช้ก่อน restore เท่านั้น
 
@@ -253,6 +305,9 @@ def main(args):
         print("restore แล้ว จาก:", args[1])
         if safety:
             print("สำเนาก่อน restore (ย้อนกลับได้):", safety)
+        warning = upgrade_warning(default_db_path())
+        if warning:
+            print(warning)
         # เตือนทุกครั้งที่ restore สำเร็จ — cookie ที่ผู้ใช้ถืออยู่ยังเซ็นด้วย key เดิม
         # แต่ข้อมูลในฐานถูกย้อนกลับไปแล้ว ต้องเปลี่ยน key ให้ทุกคนล็อกอินใหม่
         print("⚠️ ต้องเปลี่ยน SECRET_KEY ใน services/backend/instance/config.py")

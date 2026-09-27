@@ -9,7 +9,14 @@
   },
   "pipeline/02_enhancement/point_operations.py": {
     "image": "output/point_operations_before_after.png",
-    "note": "All panels use the same display range 0-255; brightness changes are not autoscaled."
+    "note": "All panels use the same display range 0-255; brightness changes are not autoscaled.",
+    "contrast_stretch_example": {
+      "image": "output/contrast_stretch_before_after.png",
+      "note": "Supplementary controlled example: input = floor(reference * 0.25 + 45); fixed display range 0-255.",
+      "reference": "input/evidence_reference.png",
+      "before": "input/evidence_low_contrast.png",
+      "table": "evaluation/contrast_stretch_metrics.csv"
+    }
   },
   "pipeline/02_enhancement/histogram_mapping.py": {
     "image": "output/histogram_mapping_before_after.png",
@@ -34,6 +41,21 @@
   "pipeline/04_features/shape_sharpness.py": {
     "image": "output/shape_sharpness_before_after.png",
     "note": "Red contour: area 5500, perimeter 266.3, circularity 0.975."
+  },
+  "pipeline/04_features/auto_tag.py": {
+    "image": "output/auto_tag_before_after.png",
+    "note": "Rule-based metadata only; image pixels are unchanged. This is not an accuracy evaluation.",
+    "input": "input/evidence_scene.png",
+    "tags": [
+      "cool",
+      "dark",
+      "landscape-orientation"
+    ],
+    "reasons": {
+      "cool": "Cool-hue pixels are 78.2% of chromatic pixels, at least the 50% threshold.",
+      "dark": "Mean grayscale intensity 56.4 is below 64.",
+      "landscape-orientation": "Width-to-height ratio 1.33 is above 1.10."
+    }
   },
   "pipeline/05_evaluation/quality_metrics.py": {
     "image": "output/quality_metrics_before_after.png",
