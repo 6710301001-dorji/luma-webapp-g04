@@ -59,21 +59,25 @@ def _parse_generation_params(data: dict, default_width: int = 512, default_heigh
     if any(isinstance(data.get(name), bool) for name in numeric_fields):
         return bad("steps, cfg_scale, seed, width, height ต้องเป็นตัวเลข ไม่ใช่ true/false")
 
+    # ค่า default ทั้งสี่ตัวนี้ตั้งได้ผ่าน instance/config.py (#192) — .get() ใส่ค่าเดิม
+    # ไว้เป็น fallback เพื่อไม่ให้เครื่องที่ยังไม่ copy config.py มามีพฤติกรรมเปลี่ยน
+    config = current_app.config
+
     try:
-        steps = int(data.get("steps", 20))
+        steps = int(data.get("steps", config.get("FORGE_DEFAULT_STEPS", 20)))
     except (ValueError, TypeError):
         return bad("steps ต้องเป็นตัวเลขจำนวนเต็ม / steps must be an integer")
     if steps < 1 or steps > 50:
         return bad("steps ต้องอยู่ระหว่าง 1-50")
 
     try:
-        cfg_scale = float(data.get("cfg_scale", 8.0))
+        cfg_scale = float(data.get("cfg_scale", config.get("FORGE_DEFAULT_CFG_SCALE", 8.0)))
     except (ValueError, TypeError):
         return bad("cfg_scale ต้องเป็นตัวเลข / cfg_scale must be a number")
     if cfg_scale < 1.0 or cfg_scale > 30.0:
         return bad("cfg_scale ต้องอยู่ระหว่าง 1.0-30.0")
 
-    sampler_name = data.get("sampler_name", "DPM++ 2M Karras")
+    sampler_name = data.get("sampler_name", config.get("FORGE_DEFAULT_SAMPLER", "DPM++ 2M Karras"))
     if not isinstance(sampler_name, str):
         return bad("sampler_name ต้องเป็นข้อความ / sampler_name must be a string")
     if sampler_name not in SUPPORTED_SAMPLERS:
@@ -81,7 +85,7 @@ def _parse_generation_params(data: dict, default_width: int = 512, default_heigh
                    f"/ sampler_name must be one of the supported samplers")
 
     try:
-        seed = int(data.get("seed", -1))
+        seed = int(data.get("seed", config.get("FORGE_DEFAULT_SEED", -1)))
     except (ValueError, TypeError):
         return bad("seed ต้องเป็นตัวเลขจำนวนเต็ม / seed must be an integer")
     # ai-engine ปฏิเสธ seed < -1 (app.py:273, :359) — ถ้าไม่ดักที่นี่ งานจะเข้าคิวไปแล้ว
