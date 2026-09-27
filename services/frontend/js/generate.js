@@ -30,6 +30,7 @@
     const previewMeta = document.getElementById("preview-meta");
     const metaAssetId = document.getElementById("meta-asset-id");
     const metaPrompt = document.getElementById("meta-prompt");
+    const metaInfo = document.getElementById("meta-info");
 
     let isGenerating = false;
 
@@ -106,6 +107,7 @@
         // แสดงข้อมูล Metadata ป้องกัน XSS ด้วย textContent
         if (metaAssetId) metaAssetId.textContent = data.asset_id;
         if (metaPrompt) metaPrompt.textContent = prompt;
+        if (metaInfo) metaInfo.textContent = describeSettings(payload, data.seed_used);
         if (previewMeta) previewMeta.removeAttribute("hidden");
       } catch (err) {
         console.error("Generate error:", err);
@@ -116,6 +118,30 @@
       }
 
       return false;
+    }
+
+    /** บรรทัดรายละเอียดแบบเดียวกับ Forge WebUI (#174)
+     *
+     *  seed สำคัญที่สุดในบรรทัดนี้ — ส่ง seed: -1 (สุ่ม) แล้วได้ภาพที่ชอบ ถ้าไม่รู้ว่า
+     *  Forge ใช้เลขอะไร ก็สร้างภาพเดิมซ้ำไม่ได้เลย (API_CONTRACT.md เขียนข้อนี้ไว้เอง)
+     *
+     *  ค่าอื่นเอาจาก payload ที่หน้านี้ส่งไป ส่วน seed เอาจาก seed_used ที่ backend
+     *  ตอบกลับมา เพราะเลขที่ส่งไปคือ -1 ไม่ใช่เลขที่ Forge ใช้จริง
+     *
+     *  jobs.seed_used เป็น nullable — ถ้า Forge ไม่แจ้งกลับมา ต้องบอกผู้ใช้ว่าไม่ทราบ
+     *  ไม่ใช่โชว์ "undefined" หรือ "-1" ให้เข้าใจผิดว่านี่คือ seed ที่เอาไปใช้ซ้ำได้
+     */
+    function describeSettings(settings, seedUsed) {
+      const seedText = (seedUsed === null || seedUsed === undefined || seedUsed < 0)
+        ? "ไม่ทราบ (Forge ไม่ได้แจ้งกลับมา)"
+        : String(seedUsed);
+      return [
+        `Steps: ${settings.steps}`,
+        `Sampler: ${settings.sampler_name}`,
+        `CFG scale: ${settings.cfg_scale}`,
+        `Seed: ${seedText}`,
+        `Size: ${settings.width}x${settings.height}`,
+      ].join(", ");
     }
 
     // ถามสถานะงานจนเสร็จ — done คืนข้อมูลงาน, failed โยน error ที่ backend บอกเหตุผลไว้
