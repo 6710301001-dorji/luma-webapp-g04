@@ -59,7 +59,10 @@ FORGE_TIMEOUT_SECONDS      = 120
 # Stored OUTSIDE static/ on purpose. Flask serves everything under static/ to
 # anyone who knows the URL, logged in or not - that was the IDOR bug F05.
 # Files must be served through a route that checks ownership.
-MAX_CONTENT_LENGTH = 16 * 1024 * 1024   # 16 MB per upload
+# 32 MB: inpaint sends two base64 images (source + mask), 10 MB each after
+# decoding, and base64 grows ~33%. 16 MB here would reject valid inpaint
+# requests. Matches client_max_body_size 30m in deploy/nginx/luma.conf.
+MAX_CONTENT_LENGTH = 32 * 1024 * 1024   # 32 MB per request
 
 # --- Rate limiting (login) --------------------------------------------------
 RATE_LIMIT_WINDOW_SECONDS = 60
