@@ -153,6 +153,13 @@ def _describe_engine_failure(response) -> str:
     except ValueError:
         pass
 
+    # 503 = ai-engine ปัดตกเองเพราะยังไม่ตั้ง FORGE_URL (Forge ยังไม่ถูกเรียกเลย)
+    # ต้องเช็คก่อน "forge" เพราะข้อความ "FORGE_URL is not configured" ก็มีคำว่า forge
+    # (ทดสอบจริงแล้วเจอ: เคยเข้าเงื่อนไข Forge-ไม่ตอบผิด ทั้งที่ยังไม่ได้ยิงไปหา Forge เลย)
+    if response.status_code == 503 and detail:
+        return (f"AI engine ปฏิเสธคำขอ: {detail} "
+                f"/ AI engine rejected the request: {detail}")
+
     if "forge" in detail.lower():
         if response.status_code == 504:
             return ("ระบบสร้างภาพ (Forge) ตอบช้าเกินกำหนด ลองลด Steps หรือขนาดภาพ "

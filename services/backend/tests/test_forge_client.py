@@ -128,11 +128,16 @@ def test_forge_timeout_tells_the_user_it_was_slow_not_dead():
 
 def test_ai_engine_config_problem_is_not_blamed_on_a_dead_forge():
     """[กรณีทดสอบ]: ai-engine ปัดตกเองเพราะยังไม่ตั้ง FORGE_URL -> ข้อความต้องพูดถึง FORGE_URL
+    และต้อง**ไม่ใช่**ข้อความ "Forge ไม่ตอบ" (รีวิว PR #189 โดย @boss2912)
 
-    กรณีนี้ Forge อาจเปิดอยู่ก็ได้ ปัญหาอยู่ที่ไฟล์ตั้งค่าของ ai-engine
+    กรณีนี้ Forge อาจเปิดอยู่ก็ได้ ปัญหาอยู่ที่ไฟล์ตั้งค่าของ ai-engine ยังไม่เคยยิงไปหา
+    Forge เลยด้วยซ้ำ — เดิมเทสนี้เช็คแค่ "FORGE_URL" in message ซึ่งผ่านได้ทั้งสอง
+    ข้อความ (เพราะข้อความ Forge-ไม่ตอบก็มีคำว่า FORGE_URL อยู่ด้วย) เลยไม่จับว่า
+    "FORGE_URL is not configured" มีคำว่า "forge" ปนอยู่ ทำให้ตกเงื่อนไข Forge-ไม่ตอบผิด
     """
     message = _message_for(503, {"error": "FORGE_URL is not configured"})
     assert "FORGE_URL" in message
+    assert "ไม่ตอบ" not in message, message
 
 
 def test_non_json_reply_falls_back_to_the_status_code():
