@@ -196,15 +196,18 @@ def get_asset_image(asset_id):
 | `JOB_STALE_AFTER_SECONDS` | `FORGE_TIMEOUT_SECONDS × 2` (`240`) | งาน `running` เก่ากว่านี้ถือว่าค้าง เอากลับมาเข้าคิวใหม่ (`job_queue.py`) ไม่อยู่ใน `config.py.example` |
 | `SESSION_COOKIE_SECURE` | `False` | ต้องเป็น `True` ตอน deploy หลัง HTTPS จริง ไม่งั้น cookie `csrf_token` หลุดผ่าน HTTP ได้ (`set_cookie(..., secure=...)`) |
 | `WTF_CSRF_ENABLED` | `not TESTING` (คือ `True` นอกโหมดเทส) | ปิดเฉพาะตอน `TESTING=True` เพื่อให้เทสที่ไม่ได้ตรวจ CSRF ไม่ต้องแนบ token เอง |
+| `FORGE_DEFAULT_STEPS` | `20` | ค่า `steps` เริ่มต้นของ `POST /api/generate`/`/api/img2img` เมื่อไม่ส่งมา (Lecture 2 หน้า 7) |
+| `FORGE_DEFAULT_CFG_SCALE` | `8.0` | ค่า `cfg_scale` เริ่มต้น (Lecture 2 หน้า 10 แนะนำ 8–14) |
+| `FORGE_DEFAULT_SAMPLER` | `"DPM++ 2M Karras"` | ต้องอยู่ใน `SUPPORTED_SAMPLERS` (ดูตาราง pipeline ใน `API_CONTRACT.md`) ไม่งั้นทุก request ที่ไม่ระบุ sampler จะได้ 400 |
+| `FORGE_DEFAULT_SEED` | `-1` | -1 = สุ่ม (Lecture 2 หน้า 5–6) |
+| `RATE_LIMIT_WINDOW_SECONDS` | `60` | ช่วงเวลาที่นับความพยายาม login ผิดของ `check_rate_limit()` (`routes/auth.py`) |
+| `RATE_LIMIT_MAX_ATTEMPTS` | `5` | จำนวนครั้งที่ผิดได้ก่อนโดน 429 ในหน้าต่างเวลาข้างบน |
 
-> ⚠️ **`config.py.example` เองก็มีคีย์ที่โค้ดไม่อ่านเลย** — `FORGE_DEFAULT_STEPS` /
-> `FORGE_DEFAULT_CFG_SCALE` / `FORGE_DEFAULT_SAMPLER` / `FORGE_DEFAULT_SEED` /
-> `RATE_LIMIT_WINDOW_SECONDS` / `RATE_LIMIT_MAX_ATTEMPTS` ไม่มีจุดไหนใน `services/backend/app/`
-> อ้างถึงเลย ค่า default จริงถูก hardcode ไว้ในโค้ดตรงจุดที่ใช้แทน (เช่น
-> `routes/api.py` มี `data.get("sampler_name", "DPM++ 2M Karras")` และ `routes/auth.py`
-> มี `check_rate_limit(email, max_attempts=5, window_seconds=60)`) แก้ค่าพวกนี้ใน `config.py`
-> แล้วจะไม่มีผลอะไรเลย — พบระหว่างตรวจ #175 แต่ไม่อยู่ในขอบเขตของ issue นี้ (ไฟล์คนละไฟล์กับ
-> `API_CONTRACT.md`/`ARCHITECTURE.md`) เปิดแยกไว้ที่ #192
+> ✅ **6 คีย์ข้างบน (`FORGE_DEFAULT_*`, `RATE_LIMIT_*`) เพิ่งถูกต่อเข้ากับโค้ดจริง (#192)**
+> เดิม `config.py.example` มีคีย์เหล่านี้แต่ไม่มีจุดไหนอ่านเลย ค่า default ถูก hardcode ไว้ตรง
+> จุดที่ใช้แทน — แก้ให้ `_parse_generation_params()`/`check_rate_limit()` อ่านจาก
+> `current_app.config` จริง โดยใส่ค่าเดิมไว้เป็น fallback (`.get("FORGE_DEFAULT_STEPS", 20)`)
+> เครื่องที่ยังไม่ copy `config.py` มาจึงพฤติกรรมเหมือนเดิมทุกอย่าง
 
 ### 7.3 ฝั่ง frontend
 
