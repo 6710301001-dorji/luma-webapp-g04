@@ -16,6 +16,7 @@
 """
 
 import os
+import shutil
 import sqlite3
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -367,3 +368,172 @@ def test_known_revisions_comes_from_the_migration_files(db_file):
     with closing(sqlite3.connect(db_file)) as conn:
         current = conn.execute("SELECT version_num FROM alembic_version").fetchone()[0]
     assert current in known
+
+
+# --- ภาพต้องถูก backup ไปด้วย + สำเนากันพลาดก่อน restore ------------------------
+#
+# ทดลองจริงแล้วเจอ: backup เก็บแค่ .db (ในนั้นมีแค่ path ของภาพ ไม่มีตัวภาพ)
+# ลบภาพผ่านเว็บ -> restore -> แถวกลับมา แต่เปิดภาพได้ 404 "ไฟล์ภาพสูญหาย"
+
+def make_image(db_file, name, content):
+    """สร้างไฟล์ภาพปลอมใน uploads/ ข้างไฟล์ .db แบบเดียวกับที่ backend เก็บจริง"""
+    image = db_file.parent / "uploads" / "generated" / name
+    image.parent.mkdir(parents=True, exist_ok=True)
+    image.write_bytes(content)
+    return image
+
+
+def test_restore_brings_back_a_deleted_image(db_file, tmp_path):
+    """MUST — backup -> ลบภาพ -> restore -> ภาพต้องกลับมาเหมือนเดิมทุก byte"""
+    image = make_image(db_file, "a.png", b"image-a")
+
+    backup_file = backup(db_file, tmp_path / "backups")
+    image.unlink()
+    restore(backup_file, db_file)
+
+    assert image.read_bytes() == b"image-a"
+
+
+def test_restore_keeps_images_created_after_the_backup(db_file, tmp_path):
+    """restore เติมเฉพาะภาพที่ขาด ต้องไม่ลบภาพที่มีอยู่"""
+    make_image(db_file, "a.png", b"image-a")
+    backup_file = backup(db_file, tmp_path / "backups")
+
+    newer = make_image(db_file, "new.png", b"image-new")
+    restore(backup_file, db_file)
+
+    assert newer.read_bytes() == b"image-new"
+
+
+def test_restore_makes_a_safety_copy_that_can_undo_it(db_file, tmp_path):
+    """MUST — restore ผิดไฟล์ต้องย้อนกลับได้ ด้วยสำเนาที่ restore สร้างไว้ก่อนเขียนทับ"""
+    old_backup = backup(db_file, tmp_path / "backups")
+
+    with closing(sqlite3.connect(db_file)) as conn, conn:
+        conn.execute("INSERT INTO assets (prompt, file_path, created_at, user_id) "
+                     "VALUES ('new work', 'c.png', '2026-09-27 00:00:00', 1)")
+    latest = count_rows(db_file)
+
+    safety = restore(old_backup, db_file)
+    assert count_rows(db_file)["assets"] == 2          # restore ทับงานใหม่ไปแล้ว
+
+    restore(safety, db_file)
+    assert count_rows(db_file) == latest               # ย้อนกลับได้ งานใหม่กลับมา
+
+
+# --- งานพังกลางทาง (รีวิว PR #190) ------------------------------------------------
+#
+# จำลองดิสก์เต็มตอนคัดลอกภาพ: คัดลอกได้ 1 ไฟล์แล้วพัง แบบที่เกิดจริงบน Windows ได้
+
+def copytree_that_fails_after_one_file(src, dst, **kwargs):
+    dst = Path(dst)
+    dst.mkdir(parents=True, exist_ok=True)
+    first = next(Path(src).rglob("*.png"))
+    (dst / first.name).write_bytes(first.read_bytes())
+    raise OSError("จำลอง: ดิสก์เต็มระหว่างคัดลอกภาพ")
+
+
+def test_backup_that_fails_while_copying_images_leaves_nothing_behind(db_file, tmp_path):
+    """backup ที่คัดลอกภาพไม่ครบต้องไม่เหลือไฟล์ไว้หลอกว่าเป็น backup ที่ใช้ได้
+
+    ถ้าเหลือ .db คู่กับภาพครึ่งๆ กลางๆ วันหลังเอาไป restore จะได้ภาพคืนไม่ครบแบบเงียบๆ
+    """
+    make_image(db_file, "a.png", b"image-a")
+    make_image(db_file, "b.png", b"image-b")
+    backups = tmp_path / "backups"
+
+    with patch.object(db_backup.shutil, "copytree", copytree_that_fails_after_one_file):
+        with pytest.raises(OSError):
+            backup(db_file, backups)
+
+    assert list(backups.iterdir()) == []
+
+
+def test_restore_that_fails_while_returning_images_says_where_the_safety_copy_is(db_file, tmp_path):
+    """คืนภาพพังหลังเขียนทับ DB แล้ว — error ต้องบอก path สำเนากันพลาด ไม่งั้นผู้ใช้ไม่รู้ว่ามี"""
+    make_image(db_file, "a.png", b"image-a")
+    backups = tmp_path / "backups"
+    old_backup = backup(db_file, backups)
+    before = set(backups.glob("*.db"))
+    real_copytree = shutil.copytree
+    calls = []
+
+    def copytree_fails_on_second_call(src, dst, *args, **kwargs):
+        if args:                      # copytree เรียกตัวเองซ้ำตอนลงโฟลเดอร์ย่อย — ส่งกลับตัวจริง
+            return real_copytree(src, dst, *args, **kwargs)
+        calls.append(dst)
+        if len(calls) == 1:           # ครั้งแรกคือภาพของสำเนากันพลาด ต้องสำเร็จ
+            return real_copytree(src, dst, **kwargs)
+        return copytree_that_fails_after_one_file(src, dst, **kwargs)
+
+    with patch.object(db_backup.shutil, "copytree", copytree_fails_on_second_call):
+        with pytest.raises(OSError) as failure:
+            restore(old_backup, db_file)
+
+    safety = (set(backups.glob("*.db")) - before).pop()
+    assert str(safety) in "\n".join(getattr(failure.value, "__notes__", []))
+
+
+def test_restore_does_not_touch_the_db_if_the_safety_copy_cannot_be_made(db_file, tmp_path):
+    """ทำสำเนากันพลาดไม่สำเร็จ -> ต้องหยุดก่อนเขียนทับ ฐานจริงต้องเหมือนเดิม"""
+    make_image(db_file, "a.png", b"image-a")
+    old_backup = backup(db_file, tmp_path / "backups")
+    with closing(sqlite3.connect(db_file)) as conn, conn:
+        conn.execute("INSERT INTO assets (prompt, file_path, created_at, user_id) "
+                     "VALUES ('new work', 'c.png', '2026-09-27 00:00:00', 1)")
+    latest = count_rows(db_file)
+
+    with patch.object(db_backup.shutil, "copytree", copytree_that_fails_after_one_file):
+        with pytest.raises(OSError):
+            restore(old_backup, db_file)
+
+    assert count_rows(db_file) == latest
+
+
+def test_restore_that_fails_while_overwriting_the_db_says_where_the_safety_copy_is(db_file, tmp_path):
+    """เขียนทับ DB พัง (เช่นดิสก์เต็ม / I/O error) — ตอนนี้แหละที่ต้องการสำเนากันพลาดที่สุด
+
+    ไม่ใช้ "ไฟล์ถูกล็อก" เป็นตัวอย่าง เพราะทดลองจริงแล้ว: อีก process ถือ write lock
+    (BEGIN IMMEDIATE) ไว้ 10 วินาที -> restore รอจนล็อกหลุดแล้วเขียนสำเร็จ ไม่ได้พัง
+    """
+    backups = tmp_path / "backups"
+    old_backup = backup(db_file, backups)
+    before = set(backups.glob("*.db"))
+    real_copy = db_backup._copy
+    calls = []
+
+    def copy_then_fail(src, dst):
+        calls.append(dst)
+        if len(calls) == 1:           # ครั้งแรกคือสร้างสำเนากันพลาด ต้องสำเร็จ
+            return real_copy(src, dst)
+        raise sqlite3.OperationalError("จำลอง: disk I/O error")
+
+    with patch.object(db_backup, "_copy", copy_then_fail):
+        with pytest.raises(sqlite3.OperationalError) as failure:
+            restore(old_backup, db_file)
+
+    safety = (set(backups.glob("*.db")) - before).pop()
+    assert str(safety) in "\n".join(getattr(failure.value, "__notes__", []))
+
+
+def test_failed_backup_never_deletes_an_uploads_folder_it_did_not_create(db_file, tmp_path):
+    """ขั้นเก็บกวาดต้องลบเฉพาะของที่ตัวเองสร้าง — โฟลเดอร์ชื่อซ้ำที่มีอยู่ก่อนห้ามหาย"""
+    make_image(db_file, "a.png", b"image-a")
+    backups = tmp_path / "backups"
+    backups.mkdir()
+    fixed_name = backups / "luma-fixed.db"
+    existing = backups / "luma-fixed-uploads"
+    existing.mkdir()
+    (existing / "keep.png").write_bytes(b"someone else's file")
+
+    class FixedClock:
+        @staticmethod
+        def now(tz):
+            return datetime(2026, 9, 27, tzinfo=tz)
+
+    with patch.object(db_backup, "datetime", FixedClock), \
+         patch.object(db_backup, "_uploads_backup_dir", lambda target: existing):
+        with pytest.raises(FileExistsError):
+            backup(db_file, backups)
+
+    assert (existing / "keep.png").read_bytes() == b"someone else's file"

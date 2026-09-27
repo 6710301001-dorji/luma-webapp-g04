@@ -42,6 +42,7 @@ services/ai-engine/samples/output/*
 !services/ai-engine/samples/output/*.png
 services/database/backup/*.db
 services/database/backup/*.sql.gz
+services/database/backup/*-uploads/
 
 # ── Python ───────────────────────────────────────────────────────────────────
 __pycache__/
