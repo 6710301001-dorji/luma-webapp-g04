@@ -7,6 +7,7 @@ import os
 import uuid
 
 from flask import Blueprint, current_app, jsonify, request, send_file, session
+from sqlalchemy import text
 from app.models import db, Asset, Job, Tag
 from app.services.forge_client import edit_image, ForgeClientError
 from app.services.job_queue import enqueue
@@ -260,6 +261,39 @@ def list_assets():
         "per_page": pagination.per_page,
         "total": pagination.total,
     }), 200
+
+
+@api_bp.route("/tags", methods=["GET"])
+def list_tags():
+    """GET /api/tags — แท็กทั้งหมดของผู้ใช้ที่ล็อกอิน พร้อมจำนวนภาพของแต่ละแท็ก (#178)
+
+    หน้าคลังผลงานเคยสร้างปุ่มตัวกรองจากแท็กของภาพ "ในหน้าที่เปิดอยู่" เท่านั้น
+    แท็กที่มีแต่ในหน้าหลังจึงกดเลือกไม่ได้ endpoint นี้ให้หน้าเว็บขอรายการเต็ม
+    ครั้งเดียวโดยไม่ต้องดึงภาพทุกหน้ามานับเอง
+
+    เขียนเป็น SQL ดิบตาม ADR-008 เพราะเป็น query ที่มีตรรกะ (JOIN + GROUP BY + COUNT)
+    ไม่ใช่ CRUD ธรรมดา · ยัง inline อยู่แทนที่จะเป็นไฟล์ใน services/database/queries/
+    เพราะโฟลเดอร์นั้นเป็นของคนที่ 2 ตาม .github/CODEOWNERS — เปิด issue ขอย้ายไว้แล้ว
+
+    ใช้ INNER JOIN ไม่ใช่ LEFT JOIN ต่างจาก popular_tags.sql ของคนที่ 2 เพราะ
+    ตาราง tags ใช้ร่วมกันทุกคน LEFT JOIN จะคืนแท็กที่เจ้าของเป็นคนอื่นมาด้วย
+    ซึ่งผิด MUST ข้อสองของ #178 (เห็นเฉพาะแท็กของภาพตัวเอง)
+    """
+    if "user_id" not in session:
+        return jsonify({"error": "ยังไม่ได้เข้าสู่ระบบ / Unauthorized"}), 401
+
+    rows = db.session.execute(text("""
+        SELECT t.name AS name, COUNT(at.asset_id) AS asset_count
+        FROM tags t
+        JOIN asset_tags at ON at.tag_id = t.id
+        JOIN assets a ON a.id = at.asset_id
+        WHERE a.user_id = :user_id
+        GROUP BY t.id, t.name
+        ORDER BY asset_count DESC, t.name ASC
+    """), {"user_id": session["user_id"]}).all()
+
+    items = [{"name": row.name, "asset_count": row.asset_count} for row in rows]
+    return jsonify({"items": items, "total": len(items)}), 200
 
 
 @api_bp.route("/assets/<int:asset_id>/image", methods=["GET"])
