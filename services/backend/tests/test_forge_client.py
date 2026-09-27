@@ -62,3 +62,85 @@ def test_generate_error_does_not_leak_internal_address():
         assert failure.value.status_code == 502
         message = failure.value.message
         assert "10.0.0.5" not in message and "8000" not in message and "http" not in message, message
+
+
+def _fail_with(status, body):
+    """Mock คำตอบของ ai-engine ที่ไม่ใช่ 200 — body ที่ไม่ใช่ dict จำลองคำตอบที่ไม่ใช่ JSON"""
+    reply = Mock(status_code=status)
+    if isinstance(body, dict):
+        reply.json.return_value = body
+    else:
+        reply.json.side_effect = ValueError("not json")
+    return reply
+
+
+def _message_for(status, body):
+    import pytest
+    from app.services.forge_client import ForgeClientError
+
+    app = create_app({"TESTING": True, "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:"})
+    with app.app_context(), \
+            patch("app.services.forge_client.requests.post", return_value=_fail_with(status, body)), \
+            pytest.raises(ForgeClientError) as failure:
+        generate_image(prompt="cat")
+    return failure.value.message
+
+
+def test_forge_down_says_forge_not_ai_engine():
+    """[กรณีทดสอบ]: ai-engine ทำงานปกติแต่ Forge ล่ม -> ข้อความต้องชี้ไปที่ Forge (MUST ของ #180)
+
+    เดิมได้ "AI engine ตอบกลับด้วยสถานะ 502" ทั้งที่ ai-engine ปกติดี
+    อ่านแล้วไปไล่หาปัญหาผิดจุด เสียเวลาตอนใกล้เดโม
+    """
+    message = _message_for(502, {"error": "Forge did not return a successful JSON response"})
+    assert "Forge" in message
+    assert "เชื่อมต่อ AI engine ไม่สำเร็จ" not in message, "ต้องแยกจากกรณี ai-engine ล่ม"
+    assert "สถานะ 502" not in message, "ต้องไม่บอกแค่เลขสถานะ"
+
+
+def test_ai_engine_down_still_says_ai_engine():
+    """[กรณีทดสอบ]: ต่อ ai-engine ไม่ได้เลย -> ต้องยังบอกว่า AI engine ไม่ใช่ Forge
+
+    กันไม่ให้ตัวแก้ของ #180 เหวี่ยงไปโทษ Forge ทุกกรณี
+    """
+    import pytest
+    import requests
+    from app.services.forge_client import ForgeClientError
+
+    app = create_app({"TESTING": True, "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:"})
+    with app.app_context(), \
+            patch("app.services.forge_client.requests.post",
+                  side_effect=requests.exceptions.ConnectionError("refused")), \
+            pytest.raises(ForgeClientError) as failure:
+        generate_image(prompt="cat")
+
+    assert "AI engine" in failure.value.message
+    assert "Forge" not in failure.value.message
+
+
+def test_forge_timeout_tells_the_user_it_was_slow_not_dead():
+    """[กรณีทดสอบ]: ai-engine ตอบ 504 เพราะ Forge ช้า -> บอกว่าช้า พร้อมทางแก้ที่ผู้ใช้ทำได้เอง"""
+    message = _message_for(504, {"error": "Forge did not return a successful JSON response"})
+    assert "Forge" in message
+    assert "ช้า" in message
+    assert "Steps" in message, "ควรบอกวิธีลดเวลาให้ผู้ใช้ด้วย"
+
+
+def test_ai_engine_config_problem_is_not_blamed_on_a_dead_forge():
+    """[กรณีทดสอบ]: ai-engine ปัดตกเองเพราะยังไม่ตั้ง FORGE_URL -> ข้อความต้องพูดถึง FORGE_URL
+    และต้อง**ไม่ใช่**ข้อความ "Forge ไม่ตอบ" (รีวิว PR #189 โดย @boss2912)
+
+    กรณีนี้ Forge อาจเปิดอยู่ก็ได้ ปัญหาอยู่ที่ไฟล์ตั้งค่าของ ai-engine ยังไม่เคยยิงไปหา
+    Forge เลยด้วยซ้ำ — เดิมเทสนี้เช็คแค่ "FORGE_URL" in message ซึ่งผ่านได้ทั้งสอง
+    ข้อความ (เพราะข้อความ Forge-ไม่ตอบก็มีคำว่า FORGE_URL อยู่ด้วย) เลยไม่จับว่า
+    "FORGE_URL is not configured" มีคำว่า "forge" ปนอยู่ ทำให้ตกเงื่อนไข Forge-ไม่ตอบผิด
+    """
+    message = _message_for(503, {"error": "FORGE_URL is not configured"})
+    assert "FORGE_URL" in message
+    assert "ไม่ตอบ" not in message, message
+
+
+def test_non_json_reply_falls_back_to_the_status_code():
+    """[กรณีทดสอบ]: ai-engine ตอบไม่ใช่ JSON (เช่นหน้า error ของ proxy) -> ต้องไม่ล้มและยังบอกสถานะ"""
+    message = _message_for(500, "<html>502 Bad Gateway</html>")
+    assert "500" in message

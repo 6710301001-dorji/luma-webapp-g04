@@ -173,6 +173,58 @@ if __name__ == "__main__":
     print("=" * 60 + "\n")
 
 
+def test_generate_rejects_unknown_sampler_without_queueing(): 
+    """[กรณีทดสอบ]: sampler_name ที่ไม่รองรับต้องได้ 400 และไม่เข้าคิว (MUST ของ #180)
+
+    Forge ไม่ปฏิเสธชื่อที่ไม่รู้จัก มันเงียบๆ เปลี่ยนไปใช้ DPM++ 2M/Karras แทน
+    ผู้ใช้จึงได้ 200 พร้อมภาพที่ไม่ได้มาจาก sampler ที่ขอ โดยไม่มีอะไรบอกเลย
+    """
+    from unittest.mock import patch
+
+    from app.models import Job, db
+
+    client = _logged_in_client()
+    with patch("app.services.job_queue.generate_image", side_effect=_must_not_reach_ai_engine):
+        for name in ("NotASampler", "", "dpm++ 2m karras", "Euler A"):
+            res = client.post("/api/generate", json={"prompt": "cat", "sampler_name": name})
+            assert res.status_code == 400, f"{name!r} ควรได้ 400 แต่ได้ {res.status_code}"
+            assert "sampler_name" in res.get_json()["error"]
+
+    with client.application.app_context():
+        assert db.session.query(Job).count() == 0, "คำขอที่ถูกปัดตกต้องไม่สร้างแถวในคิว"
+
+
+def test_generate_accepts_every_sampler_in_the_dropdown():
+    """[กรณีทดสอบ]: ทุก option ใน dropdown ของ generate.html ต้องผ่าน (MUST ของ #180)
+
+    ถ้าตัวตรวจเข้มกว่าหน้าเว็บ ผู้ใช้จะเลือกจาก dropdown แล้วโดนปฏิเสธ
+    อ่านรายชื่อจากไฟล์ HTML จริง ไม่ก๊อปมาไว้ในเทส เพื่อให้เทสตกเองถ้ามีใครเพิ่ม option
+    """
+    import re
+    from pathlib import Path
+    from unittest.mock import patch
+
+    html = (Path(BASE_DIR).parent / "frontend" / "pages" / "generate.html").read_text(encoding="utf-8")
+    block = re.search(r'<select[^>]*id="sampler_name".*?</select>', html, re.S)
+    assert block, "หา dropdown sampler_name ใน generate.html ไม่เจอ"
+    options = re.findall(r'<option value="([^"]+)"', block.group(0))
+    assert len(options) >= 4, f"เจอ option แค่ {options}"
+
+    client = _logged_in_client()
+    with patch("app.services.job_queue.generate_image", return_value=("uploads/x.png", 7)):
+        for name in options:
+            res = client.post("/api/generate", json={"prompt": "cat", "sampler_name": name})
+            assert res.status_code == 202, f"{name!r} อยู่ใน dropdown แต่ถูกปฏิเสธ"
+
+
+def test_generate_default_sampler_is_supported():
+    """[กรณีทดสอบ]: ไม่ส่ง sampler_name มาต้องผ่าน — ค่า default ต้องอยู่ในรายการที่รองรับเอง"""
+    from unittest.mock import patch
+
+    client = _logged_in_client()
+    with patch("app.services.job_queue.generate_image", return_value=("uploads/x.png", 7)):
+        assert client.post("/api/generate", json={"prompt": "cat"}).status_code == 202
+
 def test_generate_rejects_seed_below_minus_one():
     """[กรณีทดสอบ]: seed ติดลบที่ไม่ใช่ -1 ต้องได้ 400 ตั้งแต่ backend ไม่ใช่ 202 แล้วค่อยล้มในคิว (#173)
 

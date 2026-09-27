@@ -81,13 +81,22 @@
 | `negative_prompt` | string | – | `""` | – |
 | `steps` | int | 1–50 | 20 | Lecture 2 หน้า 7 (20–60 พอ) |
 | `cfg_scale` | number | 1–30 | **8** | **Lecture 2 หน้า 10 แนะนำ 8–14** |
-| `sampler_name` | string | รายชื่อที่ Forge รองรับ | `"DPM++ 2M Karras"` | Lecture 2 หน้า 8–10 |
+| `sampler_name` | string | ต้องอยู่ใน `SUPPORTED_SAMPLERS` (ดูด้านล่าง) ไม่งั้น **400** | `"DPM++ 2M Karras"` | Lecture 2 หน้า 8–10 |
 | `scheduler` | string (optional) | Nonempty Forge scheduler name; see AI engine rules below | Omitted; legacy Karras names imply `Karras` | AI engine support; backend forwarding requires coordination |
 | `seed` | int | `-1` = สุ่ม | `-1` | Lecture 2 หน้า 5–6 |
 | `width` / `height` | int | 512 / 768 / 1024 | 512 | – |
 
 > ⚠️ **v1 ตั้ง `cfg_scale` default = 7 ซึ่งต่ำกว่าที่อาจารย์แนะนำ** → v2 ใช้ 8
 > ⚠️ **v1 ไม่รับ `sampler_name` และ `seed` เลย** ทั้งที่เป็นพารามิเตอร์ที่อาจารย์เน้น → v2 ต้องรับ
+>
+> ⚠️ **ชื่อ sampler ต้องถูกตรวจที่ backend** (#180) Forge **ไม่ปฏิเสธ** ชื่อที่ไม่รู้จัก
+> มันเงียบๆ เปลี่ยนไปใช้ `DPM++ 2M`/`Karras` แทนแล้วตอบ 200 ผู้ใช้จึงเข้าใจผิดว่า
+> ได้ภาพจาก sampler ที่ขอ · รายการที่รับ (`SUPPORTED_SAMPLERS` ใน `routes/api.py`):
+> `DPM++ 2M Karras` · `Euler a` · `Euler` · `DDIM` (ทั้งสี่ตัวคือ dropdown ของ `generate.html`)
+> `DPM++ SDE Karras` · `DPM++ 2M SDE Karras` (ai-engine แปลงเป็น sampler + scheduler)
+> `DPM++ 2M` · `DPM++ SDE` · `DPM++ 2M SDE` (ชื่อธรรมดาที่การแปลงนั้นใช้)
+>
+> เพิ่มตัวใหม่ต้องเพิ่ม `<option>` ใน `generate.html` ด้วย และทดลองกับ Forge จริงก่อน
 
 **ตอบกลับ** — **202** ทันที งานเข้าคิว (#21: backend ถือคิวเอง ai-engine ไม่ต้องเปลี่ยน)
 ```json
