@@ -13,8 +13,8 @@ From the repository root, using the installed project environment:
 python services/ai-engine/samples/generate_evidence.py
 ```
 
-This regenerates four `input/evidence_*.png` fixtures, the twelve figures below,
-`evaluation/quality_metrics_table.csv`, and `evidence_manifest.json`. The manifest
+This regenerates four `input/evidence_*.png` fixtures, the fourteen figures below,
+`evaluation/quality_metrics_table.csv`, the supplementary contrast-stretch table, and `evidence_manifest.json`. The manifest
 maps each processing module to a figure and links the quality table to its inputs.
 Benchmark measurements and their timestamp vary with each run; all image fixtures
 use deterministic geometry and noise (NumPy RNG seed 132). The benchmark entry
@@ -37,6 +37,8 @@ range; BGR images are converted to RGB only for display.
 | spatial_filters | [Figure](output/spatial_filters_before_after.png) | Box, Gaussian and median on the same noisy image |
 | segmentation | [Figure](output/segmentation_before_after.png) | Red HSV mask and background removal; transparency is displayed on white |
 | color_palette | [Figure](output/color_palette_before_after.png) | Four computed colors and their pixel proportions |
+| auto_tag | [Figure](output/auto_tag_before_after.png) | Actual flat tags and rule explanations; metadata only, not altered pixels or classification accuracy |
+| contrast_stretch (point_operations) | [Figure](output/contrast_stretch_before_after.png) · [Table](evaluation/contrast_stretch_metrics.csv) | Reduced-range input compared with a clean reference before and after stretching |
 | feature_vector | [Figure](output/feature_vector_before_after.png) | The computed 28-value descriptor |
 | shape_sharpness | [Figure](output/shape_sharpness_before_after.png) | Blur lowers frequency sharpness; red contour geometry is reported |
 | quality_metrics | [Figure](output/quality_metrics_before_after.png) · [Eight-method table](evaluation/quality_metrics_table.csv) | Reference, noisy input, median result, and PSNR/SSIM before and after every enhancement method |
@@ -70,3 +72,14 @@ generation performance.
 Refs #132. These figures address the sample-evidence part only. PR #135 enables
 normal PNG tracking; the shared `tools/check_all.py` evidence gate remains a
 separate follow-up. Do not close #132 until its other requirements are complete.
+
+## Supplementary contrast-stretch example
+
+The original eight-method table intentionally keeps its common impulse-noise
+fixture. That input already spans 0–255, so min/max stretching correctly leaves
+it unchanged (zero PSNR/SSIM delta). The supplementary table uses the existing
+low-contrast fixture, `floor(reference * 0.25 + 45)`, and the same clean reference.
+It demonstrates a nontrivial stretch without replacing the original result.
+These are different degradation conditions, so do not rank methods across the
+two tables. The auto-tag illustration likewise demonstrates rule output only;
+labelled classification metrics remain separate work under #27.
