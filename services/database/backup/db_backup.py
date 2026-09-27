@@ -29,6 +29,7 @@ sqlite3.Connection.backup() ของ Python อ่านข้อมูลผ�
 """
 
 import re
+import shutil
 import sqlite3
 import sys
 from contextlib import closing
@@ -74,7 +75,18 @@ def backup(db_path, backup_dir):
         except OSError as cleanup_error:
             error.add_note(f"ลบไฟล์ backup ที่ไม่สมบูรณ์ไม่ได้: {cleanup_error}")
         raise
+
+    # สำรองภาพด้วย — DB เก็บแค่ path ของภาพ ไม่ได้เก็บตัวภาพ
+    uploads = db_path.parent / "uploads"
+    if uploads.is_dir():
+        shutil.copytree(uploads, _uploads_backup_dir(target))
     return target
+
+
+def _uploads_backup_dir(backup_file):
+    """โฟลเดอร์ภาพที่คู่กับไฟล์ backup นี้ เช่น luma-X.db -> luma-X-uploads/"""
+    backup_file = Path(backup_file)
+    return backup_file.with_name(backup_file.stem + "-uploads")
 
 
 def restore(backup_file, db_path):
@@ -84,7 +96,20 @@ def restore(backup_file, db_path):
         raise FileNotFoundError(f"ไม่พบไฟล์ backup: {backup_file}")
 
     _check_is_project_db(backup_file)  # ไม่ผ่าน → หยุดตรงนี้ ฐานปัจจุบันยังไม่ถูกแตะ
+
+    # สำเนากันพลาด — เก็บสถานะปัจจุบันไว้ก่อนเขียนทับ (แบบ -backup ของ LiteDB)
+    # ถ้าเลือกไฟล์ผิด restore จากสำเนานี้กลับได้ทันที
+    safety = None
+    if Path(db_path).is_file():
+        safety = backup(db_path, backup_file.parent)
+
     _copy(backup_file, Path(db_path))
+
+    # คืนภาพที่หายไป — เติมเฉพาะไฟล์ที่ขาด ไม่ลบภาพที่มีอยู่
+    saved_uploads = _uploads_backup_dir(backup_file)
+    if saved_uploads.is_dir():
+        shutil.copytree(saved_uploads, Path(db_path).parent / "uploads", dirs_exist_ok=True)
+    return safety
 
 
 def _copy(src, dst):
@@ -209,8 +234,10 @@ def main(args):
         print("backup แล้ว:", backup(default_db_path(), HERE))
         return 0
     if len(args) == 2 and args[0] == "restore":
-        restore(args[1], default_db_path())
+        safety = restore(args[1], default_db_path())
         print("restore แล้ว จาก:", args[1])
+        if safety:
+            print("สำเนาก่อน restore (ย้อนกลับได้):", safety)
         return 0
     print(__doc__)
     return 1

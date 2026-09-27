@@ -367,3 +367,54 @@ def test_known_revisions_comes_from_the_migration_files(db_file):
     with closing(sqlite3.connect(db_file)) as conn:
         current = conn.execute("SELECT version_num FROM alembic_version").fetchone()[0]
     assert current in known
+
+
+# --- ภาพต้องถูก backup ไปด้วย + สำเนากันพลาดก่อน restore ------------------------
+#
+# ทดลองจริงแล้วเจอ: backup เก็บแค่ .db (ในนั้นมีแค่ path ของภาพ ไม่มีตัวภาพ)
+# ลบภาพผ่านเว็บ -> restore -> แถวกลับมา แต่เปิดภาพได้ 404 "ไฟล์ภาพสูญหาย"
+
+def make_image(db_file, name, content):
+    """สร้างไฟล์ภาพปลอมใน uploads/ ข้างไฟล์ .db แบบเดียวกับที่ backend เก็บจริง"""
+    image = db_file.parent / "uploads" / "generated" / name
+    image.parent.mkdir(parents=True, exist_ok=True)
+    image.write_bytes(content)
+    return image
+
+
+def test_restore_brings_back_a_deleted_image(db_file, tmp_path):
+    """MUST — backup -> ลบภาพ -> restore -> ภาพต้องกลับมาเหมือนเดิมทุก byte"""
+    image = make_image(db_file, "a.png", b"image-a")
+
+    backup_file = backup(db_file, tmp_path / "backups")
+    image.unlink()
+    restore(backup_file, db_file)
+
+    assert image.read_bytes() == b"image-a"
+
+
+def test_restore_keeps_images_created_after_the_backup(db_file, tmp_path):
+    """restore เติมเฉพาะภาพที่ขาด ต้องไม่ลบภาพที่มีอยู่"""
+    make_image(db_file, "a.png", b"image-a")
+    backup_file = backup(db_file, tmp_path / "backups")
+
+    newer = make_image(db_file, "new.png", b"image-new")
+    restore(backup_file, db_file)
+
+    assert newer.read_bytes() == b"image-new"
+
+
+def test_restore_makes_a_safety_copy_that_can_undo_it(db_file, tmp_path):
+    """MUST — restore ผิดไฟล์ต้องย้อนกลับได้ ด้วยสำเนาที่ restore สร้างไว้ก่อนเขียนทับ"""
+    old_backup = backup(db_file, tmp_path / "backups")
+
+    with closing(sqlite3.connect(db_file)) as conn, conn:
+        conn.execute("INSERT INTO assets (prompt, file_path, created_at, user_id) "
+                     "VALUES ('new work', 'c.png', '2026-09-27 00:00:00', 1)")
+    latest = count_rows(db_file)
+
+    safety = restore(old_backup, db_file)
+    assert count_rows(db_file)["assets"] == 2          # restore ทับงานใหม่ไปแล้ว
+
+    restore(safety, db_file)
+    assert count_rows(db_file) == latest               # ย้อนกลับได้ งานใหม่กลับมา
