@@ -156,8 +156,14 @@ def get_asset_image(asset_id):
 
 ## 7. Config และ Environment Variable
 
-ตารางนี้เคยมี `API_BASE_URL` ที่ไม่มีโค้ดไหนอ่านเลย และขาดตัวแปรอีก 8 ตัวที่โค้ดใช้จริง (#175)
-ตรวจซ้ำได้ด้วย `grep -rhoE 'os\.environ\.get\("[A-Z_]+"' services tools`
+ตารางนี้เคยมี `API_BASE_URL` ที่ไม่มีโค้ดไหนอ่านเลย และขาดตัวแปรอีก 10 ตัวที่โค้ดใช้จริง (#175)
+ตรวจซ้ำได้ด้วย `grep -rhoE 'os\.environ\.get\("[A-Z_]+"' services tools` (7.1) และ
+`grep -rhoE 'config(\.get|\.setdefault)?\(?\[?"[A-Z_]+"' services/backend/app services/ai-engine/app.py` (7.2)
+
+> คำสั่งแรกจะพิมพ์ `WERKZEUG_RUN_MAIN` / `CONDA_DEFAULT_ENV` / `VIRTUAL_ENV` มาด้วย — ไม่อยู่
+> ในตารางเพราะไม่ใช่ config ของแอป: `WERKZEUG_RUN_MAIN` เป็นแฟล็กภายในของ Werkzeug reloader
+> (`run.py`) ส่วนอีกสองตัวเป็นการเช็ค environment ของเครื่องมือ dev (`tools/check_env_installed.py`)
+> ไม่ใช่ค่าที่มีผลต่อพฤติกรรมของ backend/ai-engine
 
 ### 7.1 OS environment variable (`os.environ.get(...)`)
 
@@ -184,10 +190,12 @@ def get_asset_image(asset_id):
 | `SQLALCHEMY_DATABASE_URI` | `sqlite:///<instance>/luma.db` | เปลี่ยนเป็น `postgresql://...` ตอนแบบ 4 เครื่อง |
 | `AI_ENGINE_URL` | `http://127.0.0.1:8000` | IP เครื่อง AI — backend สร้างภาพและเรียก pipeline ผ่าน ai-engine ทางเดียว (ไม่ยิง Forge ตรง) |
 | `FORGE_TIMEOUT_SECONDS` | `120` | ai-engine ต้องตอบภายในเวลานี้ · `deploy/nginx/luma.conf` ตั้ง `proxy_read_timeout` ให้มากกว่านี้เสมอ |
-| `MAX_CONTENT_LENGTH` | `32 MB` | เพดานขนาด request ทั้งก้อน (#181) ตรงกับ `client_max_body_size 30m` ของ Nginx |
+| `MAX_CONTENT_LENGTH` | `32 MB` | เพดานขนาด request ทั้งก้อน (#179) ตรงกับ `client_max_body_size 30m` ของ Nginx |
 | `IMG2IMG_MAX_BYTES` | `10 MB` | เพดานต่อภาพหนึ่งใบใน `/api/img2img` (ต้นฉบับ/mask แยกกันนับ) ไม่อยู่ใน `config.py.example` — ตั้งเองได้ถ้าต้องการ |
 | `AI_ENGINE_TIMEOUT_SECONDS` | `30` | timeout ต่อคำขอหนึ่งครั้งไปหา ai-engine (`ai_engine_client.py`) ไม่อยู่ใน `config.py.example` |
 | `JOB_STALE_AFTER_SECONDS` | `FORGE_TIMEOUT_SECONDS × 2` (`240`) | งาน `running` เก่ากว่านี้ถือว่าค้าง เอากลับมาเข้าคิวใหม่ (`job_queue.py`) ไม่อยู่ใน `config.py.example` |
+| `SESSION_COOKIE_SECURE` | `False` | ต้องเป็น `True` ตอน deploy หลัง HTTPS จริง ไม่งั้น cookie `csrf_token` หลุดผ่าน HTTP ได้ (`set_cookie(..., secure=...)`) |
+| `WTF_CSRF_ENABLED` | `not TESTING` (คือ `True` นอกโหมดเทส) | ปิดเฉพาะตอน `TESTING=True` เพื่อให้เทสที่ไม่ได้ตรวจ CSRF ไม่ต้องแนบ token เอง |
 
 > ⚠️ **`config.py.example` เองก็มีคีย์ที่โค้ดไม่อ่านเลย** — `FORGE_DEFAULT_STEPS` /
 > `FORGE_DEFAULT_CFG_SCALE` / `FORGE_DEFAULT_SAMPLER` / `FORGE_DEFAULT_SEED` /

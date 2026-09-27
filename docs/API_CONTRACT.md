@@ -277,7 +277,7 @@ sorted(r.rule for r in create_app().url_map.iter_rules() if "pipeline" in r.rule
 | stage | ฟังก์ชันที่มีอยู่ (ยังไม่มี route) |
 |---|---|
 | `01_acquisition` | `image_metadata` · `validate_image_file` · `field_of_view` (`acquisition.py`) |
-| `02_enhancement` | `histogram` · `statistics` · `assess_quality` (`histogram.py`) · `gamma` · `log_transform` · `contrast_stretch` (`point_operations.py`) · `median` (`spatial_filters.py`) |
+| `02_enhancement` | `histogram` · `statistics` · `assess_quality` (`histogram.py`) · `gamma` · `log_transform` · `contrast_stretch` (`point_operations.py`) · `median` (`spatial_filters.py`) · `equalize` · `match_histogram` (`histogram_mapping.py`) |
 | `03_segmentation` | `remove_background` · `selective_color_mask` (`segmentation.py`) |
 | `04_features` | `extract` (`feature_vector.py`) — เวกเตอร์คุณลักษณะ ไม่ใช่ statistics ตัวเดียว |
 | `05_evaluation` | `image_quality` (PSNR/SSIM, `quality_metrics.py`) · `segmentation_quality` (IoU, `segmentation_metrics.py`) |
