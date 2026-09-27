@@ -30,6 +30,36 @@ Raw trials are in `queue_comparison_raw.csv`; exact summary values are in
 `queue_comparison_summary.csv`; environment and workload details are in
 `queue_comparison_metadata.json`.
 
+## Endpoint response time
+
+The queue run already measured the synchronous txt2img request, queued generate
+submission, and job-status polling. A second local run measured the five
+remaining user-facing endpoints identified in issue #68. It used a backend on a
+fresh Alembic database, the local AI engine, a deterministic 128×128 PNG, and a
+zero-delay mock Forge. Each endpoint received one excluded warm-up followed by
+10 measured requests in a rotating order.
+
+| Endpoint | Samples | p50 | p95 |
+|---|---:|---:|---:|
+| `POST ai-engine /forge/txt2img` (fixed 10 s mock delay) | 15 | 10.036 s | 10.090 s |
+| `POST /api/generate` (queued 202) | 15 | 0.0169 s | 0.0219 s |
+| `GET /api/jobs/<id>` (poll) | 1,667 | 0.00543 s | 0.00985 s |
+| `POST /api/img2img` | 10 | 0.0100 s | 0.0106 s |
+| `GET /api/assets` | 10 | 0.00230 s | 0.00241 s |
+| `POST /api/pipeline/blur-region` | 10 | 0.00312 s | 0.00345 s |
+| `POST /api/pipeline/find-objects` | 10 | 0.00280 s | 0.00394 s |
+| `POST /api/pipeline/palette/extract` | 10 | 0.00959 s | 0.01009 s |
+
+![Successful endpoint response time](endpoint_latency.png)
+
+These values measure successful HTTP requests through the running services.
+The pipeline rows include real image decoding and algorithm execution in the AI
+engine. The img2img row includes backend validation, mock generation, file
+storage, and its database insert. Because the goal is application endpoint
+overhead, these five measurements use the local mock rather than a public
+tunnel. Raw trials, exact statistics, and environment details are stored in the
+corresponding `endpoint_latency_*` files.
+
 ## Filter timing
 
 On the same machine, a 15×15 direct 2D box convolution took 13.283 ms median and
