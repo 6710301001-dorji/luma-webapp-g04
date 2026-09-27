@@ -80,12 +80,12 @@ def _summary(rows):
     }
 
 
-def _draw_confusion_matrix(summary, output_path):
+def _draw_confusion_matrix(summary, output_path, title="Five-photo pixel confusion matrix", figsize=(6, 5)):
     matrix = np.array([
         [summary["true_positive"], summary["false_negative"]],
         [summary["false_positive"], summary["true_negative"]],
     ])
-    figure, axis = plt.subplots(figsize=(6, 5))
+    figure, axis = plt.subplots(figsize=figsize)
     axis.imshow(matrix, cmap="Blues")
     labels = (("TP", "FN"), ("FP", "TN"))
     for row in range(2):
@@ -100,7 +100,7 @@ def _draw_confusion_matrix(summary, output_path):
             )
     axis.set_xticks([0, 1], ["Predicted flower", "Predicted background"])
     axis.set_yticks([0, 1], ["Actual flower", "Actual background"])
-    axis.set_title("Five-photo pixel confusion matrix")
+    axis.set_title(title)
     figure.tight_layout()
     figure.savefig(output_path, dpi=150)
     plt.close(figure)
