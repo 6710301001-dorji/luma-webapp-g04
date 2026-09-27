@@ -537,3 +537,41 @@ def test_failed_backup_never_deletes_an_uploads_folder_it_did_not_create(db_file
             backup(db_file, backups)
 
     assert (existing / "keep.png").read_bytes() == b"someone else's file"
+
+
+# --- เตือนให้ upgrade หลัง restore backup ที่ schema เก่ากว่าโค้ด -----------------
+#
+# ทดลองจริงแล้ว: restore backup ที่ revision เก่า -> ผ่านเงียบๆ -> เปิดแอป login ได้ 500
+# "no such table: users" จนกว่าจะรัน flask db upgrade เอง ซึ่งไม่มีอะไรบอกผู้ใช้เลย
+
+def test_latest_revision_is_a_revision_no_migration_points_back_to():
+    latest = db_backup.latest_revision()
+    assert latest in db_backup.known_revisions()
+
+
+def test_restoring_an_up_to_date_backup_needs_no_warning(db_file, tmp_path):
+    saved = backup(db_file, tmp_path / "backups")
+    restore(saved, db_file)
+    assert db_backup.upgrade_warning(db_file) is None
+
+
+def test_restoring_an_old_backup_says_to_run_db_upgrade(db_file, tmp_path):
+    old = _database_at_first_revision(tmp_path / "old.db")
+    saved = backup(old, tmp_path / "backups")
+
+    restore(saved, db_file)
+
+    warning = db_backup.upgrade_warning(db_file)
+    assert warning is not None
+    assert "18566175f613" in warning          # บอกว่าตอนนี้อยู่ revision ไหน
+    assert "db upgrade" in warning            # บอกคำสั่งที่ต้องรัน
+
+
+def test_restore_command_prints_the_upgrade_warning(db_file, tmp_path, capsys):
+    old = _database_at_first_revision(tmp_path / "old.db")
+    saved = backup(old, tmp_path / "backups")
+
+    with patch.object(db_backup, "default_db_path", lambda: db_file):
+        assert db_backup.main(["restore", str(saved)]) == 0
+
+    assert "db upgrade" in capsys.readouterr().out
