@@ -6,6 +6,7 @@ import json
 import platform
 from datetime import datetime, timezone
 import sys
+import textwrap
 from importlib import import_module
 from pathlib import Path
 
@@ -55,6 +56,52 @@ def comparison(stage, name, panels, note):
     for axis, (label, pixels) in zip(axes, panels):
         display(axis, pixels, label)
     save(fig, stage, name, note)
+
+
+def auto_tag_evidence(scene):
+    result = module('04_features', 'auto_tag').classify(scene)
+    fig, axes = figure('auto_tag', 2)
+    display(axes[0], scene, 'Before: input image')
+    axes[1].axis('off')
+    axes[1].set_title('After: computed tags and reasons', fontsize=10)
+    lines = []
+    for tag in result['tags']:
+        lines.extend([tag, textwrap.fill(result['reasons'][tag], width=43), ''])
+    axes[1].text(0, 0.95, '\n'.join(lines), va='top', fontsize=9,
+                 transform=axes[1].transAxes)
+    save(fig, '04_features', 'auto_tag',
+         'Rule-based metadata only; image pixels are unchanged. This is not an accuracy evaluation.')
+    MANIFEST['pipeline/04_features/auto_tag.py'].update({
+        'input': 'input/evidence_scene.png', **result,
+    })
+
+
+def contrast_stretch_evidence(reference, low):
+    point = module('02_enhancement', 'point_operations')
+    quality = module('05_evaluation', 'quality_metrics')
+    stretched = point.contrast_stretch(low)
+    before = quality.image_quality(reference, low)
+    after = quality.image_quality(reference, stretched)
+    row = {
+        'method': 'contrast_stretch',
+        'before_psnr': before['psnr'], 'after_psnr': after['psnr'],
+        'psnr_change': after['psnr'] - before['psnr'],
+        'before_ssim': before['ssim'], 'after_ssim': after['ssim'],
+        'ssim_change': after['ssim'] - before['ssim'],
+    }
+    quality.write_csv([row], EVALUATION / 'contrast_stretch_metrics.csv')
+    panels = [('Clean reference', reference)]
+    for label, image, scores in [('Before: reduced contrast', low, before),
+                                 ('After: contrast stretch', stretched, after)]:
+        panels.append((f"{label}\nPSNR {scores['psnr']:.2f} dB; SSIM {scores['ssim']:.3f}", image))
+    comparison('02_enhancement', 'contrast_stretch', panels,
+               'Supplementary controlled example: input = floor(reference * 0.25 + 45); fixed display range 0-255.')
+    # contrast_stretch is a function of point_operations, not a separate module.
+    evidence = MANIFEST.pop('pipeline/02_enhancement/contrast_stretch.py')
+    evidence.update({'reference': 'input/evidence_reference.png',
+                     'before': 'input/evidence_low_contrast.png',
+                     'table': 'evaluation/contrast_stretch_metrics.csv'})
+    MANIFEST['pipeline/02_enhancement/point_operations.py']['contrast_stretch_example'] = evidence
 
 
 def main():
@@ -134,6 +181,9 @@ def main():
                 (f'Blurred sharpness: {shape.sharpness(blurred):.2f}', blurred)],
                 f"Red contour: area {geometry['area']:.0f}, perimeter {geometry['perimeter']:.1f}, circularity {geometry['circularity']:.3f}.")
 
+    auto_tag_evidence(scene)
+    contrast_stretch_evidence(gray, low)
+
     stage = '05_evaluation'
     quality = module(stage, 'quality_metrics')
     denoised = filters.median(noisy)
@@ -189,7 +239,7 @@ def main():
         'image_shape': list(gray.shape), 'kernel_size': 15, 'repeats': 10,
     }
     (ROOT / 'evidence_manifest.json').write_text(json.dumps(MANIFEST, indent=2) + '\n', encoding='utf-8')
-    print(f'Generated {len(MANIFEST)} module figures in {OUTPUT}')
+    print(f'Generated evidence for {len(MANIFEST)} modules in {OUTPUT}')
 
 
 if __name__ == '__main__':
