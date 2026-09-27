@@ -60,6 +60,7 @@ function load({ displayWidth, fetchImpl, imageSize = [800, 600] }) {
   nodes["fn-min-area"].value = "200";
 
   const loaded = [];
+  const offscreens = [];
   class FakeImage {
     set src(value) {
       loaded.push(value);
@@ -83,13 +84,25 @@ function load({ displayWidth, fetchImpl, imageSize = [800, 600] }) {
     JSON,
     document: {
       getElementById: (id) => nodes[id] || null,
+      // canvas ชั่วคราวที่ cleanImageDataUrl() สร้างเพื่อส่งภาพสะอาด (#176)
+      // บันทึกไว้ว่ามันวาดอะไรลงไป เทสจะได้ยืนยันว่าเป็น currentImage ไม่ใช่ canvas ที่มีเส้นกรอบ
+      createElement: (tag) => {
+        if (tag !== "canvas") return el();
+        const offscreen = el({
+          width: 0, height: 0,
+          getContext: () => ({ drawImage: (img) => { offscreen.drew = img; } }),
+          toDataURL: () => "data:image/png;base64,Q0xFQU4=",
+        });
+        offscreens.push(offscreen);
+        return offscreen;
+      },
       // ปุ่มเลือกฟังก์ชันสองอัน — gallery ของ DOM จริงใช้ .fn-choice
       querySelectorAll: (sel) => (sel === ".fn-choice" ? choices : []),
     },
   };
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(scriptPath, "utf8"), ctx);
-  return { nodes, canvas, loaded, choices };
+  return { nodes, canvas, loaded, choices, offscreens };
 }
 
 function chooseFunction(env, key) {
@@ -213,6 +226,10 @@ async function main() {
       url: sent.url, region: sent.body.region, size: sent.body.size,
       hasCsrf: Boolean(sent.headers["X-CSRFToken"]),
       lastLoaded: env.loaded[env.loaded.length - 1],
+      sentImage: sent.body.image,
+      offscreenCount: env.offscreens.length,
+      offscreenSize: env.offscreens.length ? [env.offscreens[0].width, env.offscreens[0].height] : null,
+      drewCurrentImage: env.offscreens.length ? Boolean(env.offscreens[0].drew) : false,
     }));
     return;
   }
@@ -239,6 +256,7 @@ async function main() {
       url: sent.url, body: sent.body,
       result: env.nodes["fn-objects-result"].textContent,
       strokes: env.canvas.strokes,
+      sentImage: sent.body.image,
     }));
     return;
   }

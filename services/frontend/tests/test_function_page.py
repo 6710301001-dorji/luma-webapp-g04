@@ -154,3 +154,24 @@ def test_change_image_keeps_the_same_function():
     assert s["step2"] is True and s["step1"] is False
     assert s["chosenName"] == "ตีกรอบวัตถุ"
     assert s["toolObjects"] is True
+
+
+# ------------------------------------------- ภาพที่ส่งไป backend ต้องไม่มีเส้นกรอบ (#176)
+
+def test_blur_sends_the_clean_image_not_the_canvas_with_the_box_drawn_on_it():
+    """[กรณีทดสอบ]: ภาพที่ส่งไปต้องมาจาก currentImage ไม่ใช่ canvas ที่วาดกรอบม่วงทับแล้ว
+
+    ถ้าส่ง canvas.toDataURL() ตรงๆ เส้นประม่วงจะติดไปในภาพถาวร เบลอซ้ำสองครั้ง
+    เส้นก็ทับกันไปเรื่อยๆ — @boss2912 วัดได้ว่ามี pixel ม่วง 216 จุดค้างอยู่นอกกรอบ
+    """
+    result = _run("blur_request")
+    assert result["sentImage"] == "data:image/png;base64,Q0xFQU4="   # จาก canvas ชั่วคราว
+    assert result["sentImage"] != "data:image/png;base64,Q0FOVkFT"   # ไม่ใช่ canvas ที่แสดงอยู่
+    assert result["drewCurrentImage"] is True
+    assert result["offscreenSize"] == [800, 600]                     # ขนาดเท่าภาพจริง
+
+
+def test_find_objects_also_sends_the_clean_image():
+    """[กรณีทดสอบ]: กดหาวัตถุซ้ำ กรอบเขียวรอบก่อนต้องไม่ติดไปกับภาพที่ส่ง"""
+    result = _run("objects_request")
+    assert result["sentImage"] == "data:image/png;base64,Q0xFQU4="
