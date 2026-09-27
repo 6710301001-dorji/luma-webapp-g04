@@ -131,7 +131,13 @@ def login():
 
     # 1. ตรวจสอบ Rate Limiting ต่อบัญชี (บล็อกถ้าผิดเกิน 5 ครั้งใน 1 นาที) — เช็คก่อนเทียบรหัส
     #    ทำให้ช่วงที่โดนบล็อก รหัสถูกก็เข้าไม่ได้ คนเดาจึงแยกไม่ออกว่าเดาถูกแล้วหรือยัง
-    if check_rate_limit(email, max_attempts=5, window_seconds=60):
+    # ค่า default ตั้งได้ผ่าน instance/config.py (#192) — .get() ใส่ 5/60 เดิมไว้เป็น
+    # fallback เพื่อไม่ให้เครื่องที่ยังไม่ copy config.py มามีพฤติกรรมเปลี่ยน
+    if check_rate_limit(
+        email,
+        max_attempts=current_app.config.get("RATE_LIMIT_MAX_ATTEMPTS", 5),
+        window_seconds=current_app.config.get("RATE_LIMIT_WINDOW_SECONDS", 60),
+    ):
         # log แค่ IP ไม่ log อีเมลที่พยายาม (ข้อมูลส่วนบุคคล)
         current_app.logger.warning("Rate limit exceeded (login) จาก IP: %s", request.remote_addr)
         return jsonify({
