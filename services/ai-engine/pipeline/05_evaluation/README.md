@@ -84,15 +84,18 @@ the Alembic migration chain. Then run:
 python services/ai-engine/pipeline/05_evaluation/benchmark_baseline.py \
   --output services/ai-engine/samples/benchmark \
   --backend-url http://127.0.0.1:5000 \
-  --measure-endpoints --repeats 10
+  --measure-endpoints --repeats 10 --endpoint-image-size 512
 ```
 
-This sends one excluded warm-up and ten measured requests to `/api/img2img`,
+This sends a representative 512×512 blurred-noise PNG through one excluded
+warm-up and ten measured requests to `/api/img2img`,
 `/api/assets`, `/api/pipeline/blur-region`, `/api/pipeline/find-objects`, and
 `/api/pipeline/palette/extract`. The order rotates between trials so every route
 occupies every position twice. The saved CSVs and labeled graph report p50 and
 p95 for valid responses. The pipeline routes execute the real local algorithms;
 the mock Forge keeps img2img timing independent of public-network latency.
+Use `--endpoint-image-size 1024` for a second run at the largest supported
+generation size.
 
 When real Forge is available, add `--measure-real-steps`. This separately
 measures generation at 10, 20, and 30 steps and verifies that every response

@@ -112,6 +112,7 @@ def test_endpoint_baseline_records_each_route_and_balances_order(tmp_path, monke
         "http://backend.test/",
         repeats=5,
         timeout=10,
+        image_size=512,
     )
 
     assert len(summary) == 5
@@ -131,12 +132,21 @@ def test_endpoint_baseline_records_each_route_and_balances_order(tmp_path, monke
         assert (tmp_path / filename).is_file()
 
 
-@pytest.mark.parametrize(("repeats", "timeout"), [(1, 10), (True, 10), (5, 0), (5, True)])
-def test_endpoint_baseline_rejects_invalid_settings(tmp_path, repeats, timeout):
+@pytest.mark.parametrize(("repeats", "timeout", "image_size"), [
+    (1, 10, 512),
+    (True, 10, 512),
+    (5, 0, 512),
+    (5, True, 512),
+    (5, 10, 32),
+    (5, 10, True),
+])
+def test_endpoint_baseline_rejects_invalid_settings(
+        tmp_path, repeats, timeout, image_size):
     with pytest.raises(ValueError):
         benchmark.record_endpoint_baseline(
             tmp_path,
             "http://backend.test",
             repeats=repeats,
             timeout=timeout,
+            image_size=image_size,
         )

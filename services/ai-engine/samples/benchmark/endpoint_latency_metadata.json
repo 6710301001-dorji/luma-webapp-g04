@@ -1,12 +1,12 @@
 {
-  "recorded_at_utc": "2026-09-27T04:21:46.833569+00:00",
+  "recorded_at_utc": "2026-09-27T06:57:29.557271+00:00",
   "backend_url": "http://127.0.0.1:5012",
   "repeats_per_endpoint": 10,
   "warmup_requests_per_endpoint": 1,
   "timeout_s": 180,
   "input_image_px": [
-    128,
-    128
+    512,
+    512
   ],
   "img2img_steps": 20,
   "img2img_seed": 6800,

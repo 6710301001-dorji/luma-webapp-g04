@@ -35,20 +35,20 @@ Raw trials are in `queue_comparison_raw.csv`; exact summary values are in
 The queue run already measured the synchronous txt2img request, queued generate
 submission, and job-status polling. A second local run measured the five
 remaining user-facing endpoints identified in issue #68. It used a backend on a
-fresh Alembic database, the local AI engine, a deterministic 128×128 PNG, and a
-zero-delay mock Forge. Each endpoint received one excluded warm-up followed by
-10 measured requests in a rotating order.
+fresh Alembic database, the local AI engine, a deterministic 512×512
+blurred-noise PNG, and a zero-delay mock Forge. Each endpoint received one
+excluded warm-up followed by 10 measured requests in a rotating order.
 
 | Endpoint | Samples | p50 | p95 |
 |---|---:|---:|---:|
 | `POST ai-engine /forge/txt2img` (fixed 10 s mock delay) | 15 | 10.036 s | 10.090 s |
 | `POST /api/generate` (queued 202) | 15 | 0.0169 s | 0.0219 s |
 | `GET /api/jobs/<id>` (poll) | 1,667 | 0.00543 s | 0.00985 s |
-| `POST /api/img2img` | 10 | 0.0100 s | 0.0106 s |
-| `GET /api/assets` | 10 | 0.00230 s | 0.00241 s |
-| `POST /api/pipeline/blur-region` | 10 | 0.00312 s | 0.00345 s |
-| `POST /api/pipeline/find-objects` | 10 | 0.00280 s | 0.00394 s |
-| `POST /api/pipeline/palette/extract` | 10 | 0.00959 s | 0.01009 s |
+| `POST /api/img2img` | 10 | 0.0167 s | 0.0201 s |
+| `GET /api/assets` | 10 | 0.00231 s | 0.00314 s |
+| `POST /api/pipeline/blur-region` | 10 | 0.0201 s | 0.0242 s |
+| `POST /api/pipeline/find-objects` | 10 | 0.0124 s | 0.0155 s |
+| `POST /api/pipeline/palette/extract` | 10 | 0.2447 s | 0.2643 s |
 
 ![Successful endpoint response time](endpoint_latency.png)
 
@@ -59,6 +59,15 @@ storage, and its database insert. Because the goal is application endpoint
 overhead, these five measurements use the local mock rather than a public
 tunnel. Raw trials, exact statistics, and environment details are stored in the
 corresponding `endpoint_latency_*` files.
+
+Palette extraction is the clear bottleneck at a representative 512×512 input:
+its 0.2447-second median on this Mac is about **12.2×** the next-slowest pipeline
+route, region blur. An independent Windows 11 run with the same benchmark and
+blurred-noise input measured palette extraction at 28.0 ms for 128×128, 667.5 ms
+for 512×512, and 2,542.9 ms for 1024×1024. That is about a **90.8×** increase
+from 128 to 1024 pixels per side. Absolute latency is machine-dependent, but
+both runs show that palette extraction scales steeply with image size and is the
+first endpoint to optimize if interactive response time becomes a requirement.
 
 ## Filter timing
 

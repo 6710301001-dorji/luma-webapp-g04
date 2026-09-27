@@ -405,29 +405,34 @@ def record_queue_comparison(output_dir, backend_url, ai_url, batches=3,
     return summary
 
 
-def _benchmark_image():
-    """Return a small deterministic PNG as plain base64 for endpoint timing."""
-    image = np.zeros((128, 128, 3), dtype=np.uint8)
-    image[:, :64] = (30, 90, 220)
-    image[:, 64:] = (60, 190, 80)
-    cv2.circle(image, (64, 64), 28, (230, 60, 60), thickness=-1)
+def _benchmark_image(image_size):
+    """Return a deterministic blurred-noise PNG with realistic image content."""
+    noise = np.random.default_rng(68).integers(
+        0, 256, (image_size, image_size, 3), dtype=np.uint8)
+    image = cv2.GaussianBlur(noise, (15, 15), 0)
     encoded, png = cv2.imencode(".png", image)
     if not encoded:
         raise ValueError("could not encode the endpoint benchmark image")
     return base64.b64encode(png.tobytes()).decode("ascii")
 
 
-def record_endpoint_baseline(output_dir, backend_url, repeats=10, timeout=180):
+def record_endpoint_baseline(output_dir, backend_url, repeats=10, timeout=180,
+                             image_size=512):
     """Measure successful HTTP responses for the five unreported user endpoints."""
     if isinstance(repeats, bool) or not isinstance(repeats, int) or repeats < 2:
         raise ValueError("repeats must be an integer of at least 2")
     if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
         raise ValueError("timeout must be positive")
+    if (isinstance(image_size, bool) or not isinstance(image_size, int)
+            or not 64 <= image_size <= 2048):
+        raise ValueError("image_size must be an integer from 64 to 2048")
 
     output_dir.mkdir(parents=True, exist_ok=True)
     backend = backend_url.rstrip("/")
     session = _authenticated_session(backend)
-    image = _benchmark_image()
+    image = _benchmark_image(image_size)
+    region_start = image_size // 4
+    region_size = image_size // 2
 
     endpoint_specs = (
         {
@@ -458,7 +463,12 @@ def record_endpoint_baseline(output_dir, backend_url, repeats=10, timeout=180):
             "path": "/api/pipeline/blur-region",
             "payload": {
                 "image": image,
-                "region": {"x": 24, "y": 24, "width": 80, "height": 80},
+                "region": {
+                    "x": region_start,
+                    "y": region_start,
+                    "width": region_size,
+                    "height": region_size,
+                },
                 "size": 15,
             },
             "valid": lambda body: isinstance(body.get("image"), str)
@@ -558,7 +568,7 @@ def record_endpoint_baseline(output_dir, backend_url, repeats=10, timeout=180):
         "repeats_per_endpoint": repeats,
         "warmup_requests_per_endpoint": 1,
         "timeout_s": timeout,
-        "input_image_px": [128, 128],
+        "input_image_px": [image_size, image_size],
         "img2img_steps": 20,
         "img2img_seed": 6800,
         "machine": platform.platform(),
@@ -588,6 +598,8 @@ def main():
                         help="Measure generation time by steps; use only with a real Forge target")
     parser.add_argument("--measure-endpoints", action="store_true",
                         help="Measure successful backend endpoint response times")
+    parser.add_argument("--endpoint-image-size", type=int, default=512,
+                        help="Square input size for --measure-endpoints (default: 512)")
     parser.add_argument("--sampler-name", default="DPM++ 2M")
     parser.add_argument("--scheduler", default="Karras")
     parser.add_argument("--forge-model", default="record when running")
@@ -612,6 +624,7 @@ def main():
             arguments.backend_url,
             repeats=arguments.repeats,
             timeout=arguments.timeout,
+            image_size=arguments.endpoint_image_size,
         )
         print(f"Endpoints: measured {len(summary)} routes")
     if arguments.measure_real_steps or (arguments.ai_url and not arguments.backend_url):
