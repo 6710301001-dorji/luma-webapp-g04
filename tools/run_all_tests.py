@@ -31,6 +31,7 @@ import argparse
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -112,6 +113,32 @@ def parse_counts(output: str) -> dict[str, int]:
     return counts
 
 
+def interpret_pytest_result(output: str, returncode: int) -> tuple[str, str]:
+    """แปลงผลดิบของ pytest (stdout+stderr รวมกัน, exit code) เป็น (status, tail) (#148)
+
+    แยกออกมาจาก run_service() เพื่อให้ self-test เรียกตรงได้โดยไม่ต้องเรียก pytest จริง
+    — เดิมจุดนี้ปล่อยให้ "ไม่ได้ลง pytest" กับ "เก็บ test ไม่ได้เลย" (exit 5) ผ่านเป็น
+    PASS ทั้งคู่ ทำให้ check_all.py ขึ้น [ผ่าน] ได้โดยไม่ได้รัน test จริงสักตัว
+    """
+    if "No module named pytest" in output:
+        return "NO-PYTEST", "ยังไม่ได้ลง pytest — pip install -r requirements-dev.txt"
+
+    # exit code 5 = เก็บ test ไม่ได้เลยสักตัว
+    # has_tests() กรอง "ไม่มีไฟล์ test_*.py เลย" ออกไปเป็น SKIP ไปแล้วก่อนจะมาถึงจุดนี้
+    # ถ้ามาถึงตรงนี้แล้วยังได้ exit 5 แปลว่าไฟล์ test มีอยู่จริงแต่ collect ไม่ออก
+    # (import error, syntax error, ไม่มีฟังก์ชัน test_ ในไฟล์เลย) — ต้องถือว่าล้ม
+    # ไม่ใช่ผ่านเงียบๆ เหมือนเดิม (เคยทำให้ "develop เขียว 7/7" ทั้งที่ไม่ได้รัน test จริง)
+    if returncode == 5:
+        return "FAIL", (
+            "pytest เก็บ test ไม่ได้เลยจากไฟล์ที่มีอยู่ใน tests/ (exit code 5)\n"
+            "ตรวจว่าไฟล์ test มีฟังก์ชันชื่อขึ้นต้นด้วย test_ จริง และไม่มี import error — "
+            "ลองรัน `pytest tests -q` ตรงๆ ที่โฟลเดอร์ service นั้นเพื่อดู error เต็ม")
+
+    status = "PASS" if returncode == 0 else "FAIL"
+    tail = "" if status == "PASS" else "\n".join(output.strip().splitlines()[-25:])
+    return status, tail
+
+
 def run_service(name: str, path: Path, extra: list[str],
                 quiet: bool, coverage: bool) -> Result:
     tests_dir = path / "tests"
@@ -133,20 +160,69 @@ def run_service(name: str, path: Path, extra: list[str],
     elapsed = time.perf_counter() - start
     output = (proc.stdout or "") + (proc.stderr or "")
 
-    if "No module named pytest" in output:
-        return Result(name, "NO-PYTEST", elapsed, {},
-                      "ยังไม่ได้ลง pytest — pip install -r requirements-dev.txt")
-
-    counts = parse_counts(output)
-    # pytest exit code 5 = ไม่เจอ test เลย ไม่ถือว่าล้ม
-    status = "PASS" if proc.returncode in (0, 5) else "FAIL"
-    tail = "" if status == "PASS" else "\n".join(output.strip().splitlines()[-25:])
+    status, tail = interpret_pytest_result(output, proc.returncode)
+    counts = parse_counts(output)  # เจอ "no tests ran" หรือ traceback ก็แค่ได้ {} เฉยๆ ไม่มีผลเสีย
 
     if not quiet and output.strip():
         for line in output.strip().splitlines():
             print(f"    {line}")
 
     return Result(name, status, elapsed, counts, tail)
+
+
+def run_self_test() -> int:
+    """ทดสอบตัวตรวจเอง ไม่ใช่เชื่อว่ามันทำงาน (#148) — แบบเดียวกับ
+    check_no_secrets.py --self-test และ check_doc_links.py --self-test
+    """
+    print("=" * 66)
+    print("  self-test: การตัดสินผลจาก pytest ดิบ + การตรวจโฟลเดอร์ tests/")
+    print("=" * 66)
+    bad = 0
+
+    # --- interpret_pytest_result(): (output, returncode) -> status ที่ถูกต้อง ----
+    # actionable: สตริงที่ต้องเจอในข้อความเตือน เป็นคำสั่งที่ก็อปไปรันต่อได้เลย (MUST ข้อ 3)
+    cases = [
+        ("ไม่ได้ลง pytest ต้องล้ม ไม่ใช่ผ่านเงียบๆ (MUST ข้อ 1)",
+         "Traceback...\nModuleNotFoundError: No module named pytest", 1,
+         "NO-PYTEST", "pip install -r requirements-dev.txt"),
+        ("เก็บ test ไม่ได้เลย exit 5 ต้องล้ม ไม่ใช่ผ่าน (MUST ข้อ 2)",
+         "no tests ran in 0.01s", 5, "FAIL", "pytest tests -q"),
+        ("รันผ่านปกติต้องยังเป็น PASS (กันไม่ให้แก้เกินจำเป็น)",
+         "5 passed in 1.20s", 0, "PASS", None),
+        ("test ล้มจริงต้องยังเป็น FAIL เหมือนเดิม",
+         "1 failed, 4 passed in 1.20s", 1, "FAIL", None),
+    ]
+    for description, output, returncode, expected_status, actionable in cases:
+        status, tail = interpret_pytest_result(output, returncode)
+        ok = status == expected_status and (not actionable or actionable in tail)
+        bad += not ok
+        print(f"  [{'PASS' if ok else 'FAIL'}] {description}")
+        if status != expected_status:
+            print(f"         ได้สถานะ {status} คาดว่า {expected_status}")
+        if actionable and actionable not in tail:
+            print(f"         ข้อความไม่มีคำสั่งที่ทำตามได้ทันที (หา {actionable!r} ไม่เจอ): {tail!r}")
+
+    # --- has_tests(): โฟลเดอร์ที่ไม่มีไฟล์ test เลย ต้องยังผ่านได้ (SKIP ไม่ใช่ล้ม) ----
+    with tempfile.TemporaryDirectory() as tmp:
+        empty = Path(tmp) / "empty"
+        empty.mkdir()
+        ok = has_tests(empty) is False
+        bad += not ok
+        print(f"  [{'PASS' if ok else 'FAIL'}] โฟลเดอร์ไม่มีไฟล์ test เลย -> has_tests() ต้องเป็น False")
+
+        with_test = Path(tmp) / "with_test"
+        (with_test).mkdir()
+        (with_test / "test_x.py").write_text("def test_ok(): pass\n", encoding="utf-8")
+        ok = has_tests(with_test) is True
+        bad += not ok
+        print(f"  [{'PASS' if ok else 'FAIL'}] โฟลเดอร์มีไฟล์ test_*.py -> has_tests() ต้องเป็น True")
+
+    total = len(cases) + 2
+    if bad:
+        print(f"self-test ไม่ผ่าน: {bad}/{total}")
+        return 1
+    print(f"self-test ผ่าน {total}/{total}")
+    return 0
 
 
 def main() -> int:
@@ -162,7 +238,12 @@ def main() -> int:
                         help="ส่งต่อให้ pytest -k (เลือกเฉพาะ test ที่ชื่อตรง)")
     parser.add_argument("-x", dest="exitfirst", action="store_true",
                         help="หยุดทันทีที่เจอ test แรกที่ล้ม")
+    parser.add_argument("--self-test", action="store_true",
+                        help="ทดสอบตัวสคริปต์เอง ไม่รัน pytest ของ service ไหนเลย")
     args = parser.parse_args()
+
+    if args.self_test:
+        return run_self_test()
 
     extra: list[str] = []
     if args.keyword:
@@ -194,12 +275,16 @@ def main() -> int:
     print(f"  {'service':<14}{'ผล':<12}{'ผ่าน':>6}{'ล้ม':>6}{'ข้าม':>7}{'เวลา':>9}")
     print("  " + "-" * 62)
 
+    # SKIP (ไม่มีไฟล์ test_*.py เลยในโฟลเดอร์นี้) ผ่านได้ — เห็นด้วยตาทันทีว่าโฟลเดอร์ว่างจริง
+    # ต่างจาก FAIL/NO-PYTEST ที่ดูจากภายนอกเหมือนมี test แต่ข้างในมีปัญหา (#148)
+    BLOCKING = ("FAIL", "NO-PYTEST")
+
     grand: dict[str, int] = {}
     failed = 0
     for result in results:
         for kind, count in result.counts.items():
             grand[kind] = grand.get(kind, 0) + count
-        if result.status == "FAIL":
+        if result.status in BLOCKING:
             failed += 1
         passed = result.counts.get("passed", 0)
         bad = result.counts.get("failed", 0) + result.counts.get("error", 0)
@@ -218,25 +303,25 @@ def main() -> int:
     print()
 
     for result in results:
-        if result.status in ("SKIP", "NO-PYTEST"):
+        if result.status == "SKIP":
             print(f"  [{result.status}] {result.name}: {result.tail}")
 
     if failed:
         print()
         for result in results:
-            if result.status == "FAIL":
-                print(f"  --- {result.name} ท้าย output ---")
+            if result.status in BLOCKING:
+                print(f"  --- {result.name} ({result.status}) ---")
                 for line in result.tail.splitlines():
                     print(f"    {line}")
         print()
         print("=" * 66)
-        print(f"ไม่ผ่าน: {failed} service มี test ล้ม")
+        print(f"ไม่ผ่าน: {failed} service มี test ล้มหรือรันไม่ได้ (รวมผ่านจริง {total_pass} test)")
         print("=" * 66)
         return 1
 
     print("=" * 66)
     if total_pass == 0:
-        print("ยังไม่มี test เลย — เขียน test ก่อนเขียนโค้ดจริงได้ตาม")
+        print("ยังไม่มี test เลย (0 test) — เขียน test ก่อนเขียนโค้ดจริงได้ตาม")
         print("CONTRIBUTING.md (Definition of Done ข้อ test)")
     else:
         print(f"ผ่านหมด: {total_pass} test")

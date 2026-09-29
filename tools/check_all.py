@@ -75,6 +75,8 @@ def build_checks(pre_commit: bool, with_tests: bool,
               [py, str(TOOLS / "check_no_secrets.py"), "--self-test"], False),
         Check("slug-test", "การคำนวณ anchor ยังตรงกับกฎของ GitHub",
               [py, str(TOOLS / "check_doc_links.py"), "--self-test"], False),
+        Check("gate-test", "ตัวตัดสิน pass/fail ของ run_all_tests.py ยังทำงานถูก",
+              [py, str(TOOLS / "run_all_tests.py"), "--self-test"], False),
         Check("secrets", "ไม่มี secret / ข้อมูลส่วนตัวหลุด",
               [py, str(TOOLS / "check_no_secrets.py")]
               + ([] if pre_commit else ["--all"]), True),
