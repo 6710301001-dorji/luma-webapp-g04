@@ -27,6 +27,7 @@ def generate_image(
     seed: int = -1,
     width: int = 512,
     height: int = 512,
+    checkpoint: str = "default",
 ) -> tuple[str, int]:
     """ส่ง request ไปยัง Forge AI เพื่อสร้างภาพ
 
@@ -43,7 +44,30 @@ def generate_image(
         "width": width,
         "height": height,
     }
+    if checkpoint != "default":
+        payload["checkpoint"] = checkpoint
     return _call_ai_engine("/forge/txt2img", payload, seed)
+
+
+def list_checkpoints():
+    """Read the sanitized model catalogue from ai-engine."""
+    ai_url = current_app.config.get("AI_ENGINE_URL", "http://127.0.0.1:8000").rstrip("/")
+    try:
+        response = requests.get(f"{ai_url}/forge/checkpoints", timeout=30)
+        response.raise_for_status()
+        data = response.json()
+    except requests.Timeout as exc:
+        raise ForgeClientError("Model list timed out", 504) from exc
+    except (requests.RequestException, ValueError) as exc:
+        status = 504 if getattr(getattr(exc, "response", None), "status_code", None) == 504 else 502
+        raise ForgeClientError("Could not load Forge model list", status) from exc
+    items = data.get("items") if isinstance(data, dict) else None
+    if not isinstance(items, list) or any(
+        not isinstance(item, dict) or not isinstance(item.get("title"), str)
+        or not item["title"].strip() for item in items
+    ):
+        raise ForgeClientError("Invalid model list from AI engine")
+    return [{"title": item["title"]} for item in items]
 
 
 def edit_image(
@@ -159,6 +183,9 @@ def _describe_engine_failure(response) -> str:
     if response.status_code == 503 and detail:
         return (f"AI engine ปฏิเสธคำขอ: {detail} "
                 f"/ AI engine rejected the request: {detail}")
+
+    if detail == "Forge checkpoint is no longer available; refresh the model list":
+        return "โมเดลที่เลือกไม่มีแล้ว กรุณารีเฟรชรายชื่อโมเดล / Selected checkpoint is no longer available"
 
     if "forge" in detail.lower():
         if response.status_code == 504:

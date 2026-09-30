@@ -282,3 +282,9 @@ matplotlib headless savefig · PIL interop
 - [`../docs/INDUSTRY_PRACTICES.md`](../docs/INDUSTRY_PRACTICES.md) — ทีมจริงเขาใช้เครื่องมืออะไรกัน
 - [`../INSTALL.md`](../INSTALL.md) — ติดตั้งโปรเจกต์
 - [`../CONTRIBUTING.md`](../CONTRIBUTING.md) — วิธีส่งงาน
+
+## Mock checkpoint selection (#205)
+
+Mock Forge exposes two titles at `GET /sdapi/v1/sd-models`. Its txt2img response
+echoes the selected title in `parameters.checkpoint` and rejects unknown titles.
+These are fixtures, not installed Stable Diffusion models or GPU evidence.

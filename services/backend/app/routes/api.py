@@ -9,7 +9,7 @@ import uuid
 from flask import Blueprint, current_app, jsonify, request, send_file, session
 from sqlalchemy import text
 from app.models import db, Asset, Job, Tag
-from app.services.forge_client import edit_image, ForgeClientError
+from app.services.forge_client import edit_image, list_checkpoints, ForgeClientError
 from app.services.job_queue import enqueue
 from app.services.image_input import ALLOWED_SIZES, ImageInputError, decode_image, nearest_size
 from app.services.ai_engine_client import (
@@ -113,6 +113,16 @@ def _parse_generation_params(data: dict, default_width: int = 512, default_heigh
     }, None
 
 
+@api_bp.get("/checkpoints")
+def get_checkpoints():
+    if not session.get("user_id"):
+        return jsonify({"error": "Unauthorized"}), 401
+    try:
+        return jsonify({"items": list_checkpoints()})
+    except ForgeClientError as exc:
+        return jsonify({"error": exc.message}), exc.status_code
+
+
 @api_bp.route("/generate", methods=["POST"])
 def handle_generate():
     """POST /api/generate — ใส่งานสร้างภาพเข้าคิว ตอบ 202 ทันที (Issue #21, #22)
@@ -138,6 +148,11 @@ def handle_generate():
     if error:
         return error
 
+    checkpoint = data.get("checkpoint", "default")
+    if not isinstance(checkpoint, str) or not checkpoint.strip() or len(checkpoint) > 512:
+        return jsonify({"error": "checkpoint must be a nonempty string of at most 512 characters"}), 400
+    if checkpoint.strip() != "default":
+        params["checkpoint"] = checkpoint.strip()
     job = enqueue(user_id, prompt, params)
     return jsonify({"status": "queued", "job_id": job.id}), 202
 

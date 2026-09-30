@@ -44,6 +44,14 @@
             ></textarea>
           </div>
 
+          <div class="form-group">
+            <label for="checkpoint">Checkpoint (โมเดล)</label>
+            <select class="form-control" id="checkpoint" name="checkpoint">
+              <option value="default" selected>ค่าเริ่มต้นของระบบ</option>
+            </select>
+            <span class="form-hint" id="checkpoint-status" role="status">กำลังโหลดรายชื่อโมเดล…</span>
+          </div>
+
           <div class="params-grid">
             <div class="form-group">
               <label for="steps">Sampling Steps</label>
@@ -150,6 +158,7 @@
 
   <script src="../js/csrf.js"></script>
   <script src="../js/layout.js"></script>
+  <script src="../js/checkpoints.js"></script>
   <script src="../js/generate.js"></script>
 </body>
 </html>

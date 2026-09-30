@@ -15,7 +15,31 @@ class ForgeError(Exception):
 
 def generate_image(payload, forge_base_url, timeout=120):
     """Return the first generated image and its effective seed as base64 JSON."""
-    return _request_image(payload, forge_base_url, "txt2img", timeout)
+    checkpoint = payload.get("checkpoint", "default")
+    forge_payload = {key: value for key, value in payload.items() if key != "checkpoint"}
+    if checkpoint != "default":
+        models = list_checkpoints(forge_base_url, min(timeout, 30))
+        if checkpoint not in {model["title"] for model in models}:
+            raise ForgeError("Forge checkpoint is no longer available; refresh the model list")
+        forge_payload["override_settings"] = {"sd_model_checkpoint": checkpoint}
+        forge_payload["override_settings_restore_afterwards"] = True
+    return _request_image(forge_payload, forge_base_url, "txt2img", timeout)
+
+
+def list_checkpoints(forge_base_url, timeout=30):
+    """Expose model titles, never Forge's local filenames or config paths."""
+    try:
+        response = requests.get(forge_base_url.rstrip("/") + "/sdapi/v1/sd-models", timeout=timeout)
+        response.raise_for_status()
+        models = response.json()
+    except (requests.RequestException, ValueError) as exc:
+        raise ForgeError("Forge did not return a successful model list") from exc
+    if not isinstance(models, list) or any(
+        not isinstance(model, dict) or not isinstance(model.get("title"), str)
+        or not model["title"].strip() for model in models
+    ):
+        raise ForgeError("Forge returned an invalid model list")
+    return [{"title": model["title"]} for model in models]
 
 
 def edit_image(payload, forge_base_url, timeout=120):

@@ -144,3 +144,12 @@ def test_non_json_reply_falls_back_to_the_status_code():
     """[กรณีทดสอบ]: ai-engine ตอบไม่ใช่ JSON (เช่นหน้า error ของ proxy) -> ต้องไม่ล้มและยังบอกสถานะ"""
     message = _message_for(500, "<html>502 Bad Gateway</html>")
     assert "500" in message
+
+
+def test_removed_checkpoint_error_is_not_reported_as_forge_offline():
+    from app.services.forge_client import _describe_engine_failure
+    class Response:
+        status_code = 502
+        def json(self):
+            return {"error": "Forge checkpoint is no longer available; refresh the model list"}
+    assert "Selected checkpoint is no longer available" in _describe_engine_failure(Response())

@@ -271,3 +271,48 @@ def test_worker_thread_processes_jobs_in_the_background(app, client):
         finally:
             stop()
     assert client.get(f"/api/jobs/{job_id}").get_json()["status"] == "done"
+
+
+@pytest.mark.parametrize("checkpoint", [None, True, 12, {}, "", " ", "x" * 513])
+def test_invalid_checkpoint_does_not_enqueue(client, checkpoint):
+    response = client.post("/api/generate", json={"prompt": "cat", "checkpoint": checkpoint})
+    assert response.status_code == 400
+    with client.application.app_context():
+        assert Job.query.count() == 0
+
+
+def test_checkpoint_survives_queue_and_reaches_ai_engine(app, client, monkeypatch, tmp_path):
+    from app.services import forge_client
+    sent = []
+    class Response:
+        status_code = 200
+        def json(self):
+            return {"images": ["test-image"], "seed_used": 42}
+    def post(url, json, timeout):
+        sent.append((url, json))
+        return Response()
+    monkeypatch.setattr(forge_client.requests, "post", post)
+    monkeypatch.setattr(forge_client, "save_base64_image", lambda image: "uploads/test.png")
+    response = client.post("/api/generate", json={"prompt": "cat", "checkpoint": "landscape [222]"})
+    assert response.status_code == 202
+    with app.app_context():
+        job = db.session.get(Job, response.json["job_id"])
+        assert job.params["checkpoint"] == "landscape [222]"
+        job_queue.process_available()
+        assert job.status == "done"
+    assert sent[0][0].endswith("/forge/txt2img")
+    assert sent[0][1]["checkpoint"] == "landscape [222]"
+
+
+def test_checkpoint_catalogue_requires_login_and_strips_paths(app, client, monkeypatch):
+    from app.services import forge_client
+    assert app.test_client().get("/api/checkpoints").status_code == 401
+    class Response:
+        def raise_for_status(self):
+            pass
+        def json(self):
+            return {"items": [{"title": "landscape [222]", "filename": "/private/model"}]}
+    monkeypatch.setattr(forge_client.requests, "get", lambda *a, **kw: Response())
+    response = client.get("/api/checkpoints")
+    assert response.status_code == 200
+    assert response.json == {"items": [{"title": "landscape [222]"}]}

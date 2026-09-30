@@ -82,6 +82,8 @@ OPTS = argparse.Namespace(
 
 # sampler ที่ Forge จริงมี — ใช้ validate ว่า backend ส่งชื่อที่มีอยู่จริง
 # (Lecture 2 หน้า 8-10 อธิบายว่า sampler ต่างกันให้ผลต่างกันที่ step เท่ากัน)
+CHECKPOINTS = [{"title": "mock-portrait [aabbccd001]"}, {"title": "mock-landscape [aabbccd002]"}]
+
 SAMPLERS = [
     "Euler a", "Euler", "LMS", "Heun", "DPM2", "DPM2 a",
     "DPM++ 2S a", "DPM++ 2M", "DPM++ SDE", "DPM++ 2M SDE",
@@ -213,6 +215,12 @@ def handle_txt2img(body: dict) -> tuple[int, dict]:
     err = validate_common(body)
     if err:
         return err
+    overrides = body.get("override_settings", {})
+    if not isinstance(overrides, dict):
+        return bad_request("override_settings must be an object")
+    checkpoint = overrides.get("sd_model_checkpoint", CHECKPOINTS[0]["title"])
+    if checkpoint not in [model["title"] for model in CHECKPOINTS]:
+        return bad_request("unknown checkpoint")
     seed = resolve_seed(body)
     w = int(body.get("width", 512))
     h = int(body.get("height", 512))
@@ -220,6 +228,7 @@ def handle_txt2img(body: dict) -> tuple[int, dict]:
         "images": [png_b64(w, h, seed)],
         "seed_used": seed,
         "parameters": {
+            "checkpoint": checkpoint,
             "prompt": body["prompt"],
             "negative_prompt": body.get("negative_prompt", ""),
             "steps": body.get("steps", 20),
@@ -433,6 +442,8 @@ class MockForgeHandler(BaseHTTPRequestHandler):
                               "/sdapi/v1/txt2img", "/sdapi/v1/img2img",
                               "/sdapi/v1/samplers"],
             })
+        elif path == "/sdapi/v1/sd-models":
+            self.send_json(200, CHECKPOINTS)
         elif path == "/sdapi/v1/samplers":
             self.send_json(200, [{"name": s, "aliases": []} for s in SAMPLERS])
         else:
