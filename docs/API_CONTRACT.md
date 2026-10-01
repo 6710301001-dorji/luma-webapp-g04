@@ -415,3 +415,19 @@ sorted(r.rule for r in create_app().url_map.iter_rules() if "pipeline" in r.rule
 - [ ] ตรวจ ownership ทุก endpoint ที่แตะข้อมูลผู้ใช้ → 404 ไม่ใช่ 403
 - [ ] มี test ครอบทั้ง happy path และ error path
 - [ ] อัปเดตเอกสารนี้ถ้าสัญญาเปลี่ยน
+
+## Checkpoint selection — proposal for #205 review
+
+- Authenticated `GET /api/checkpoints` → `200 {"items":[{"title":"model [hash]"}]}`.
+  No models → empty items. Unauthenticated → 401; upstream error → 502; timeout → 504.
+- AI `GET /forge/checkpoints` uses the same success body; no `FORGE_URL` → 503.
+  It reads Forge `GET /sdapi/v1/sd-models`, exposing titles only, never local paths.
+- `POST /api/generate` and AI `POST /forge/txt2img` accept optional `checkpoint`:
+  nonempty string, at most 512 characters, trimmed; omitted/`default` keeps the
+  configured Forge model. Invalid type/empty/oversize → 400. img2img is unchanged.
+- The worker preserves the requested title in job params. AI checks it against
+  the current catalogue and forwards `override_settings.sd_model_checkpoint` plus
+  `override_settings_restore_afterwards: true`. Missing models fail the job;
+  no silent default fallback. Default requests do not fetch the catalogue.
+- No new database migration. Requested checkpoint metadata is not proof of the
+  model actually loaded. Live GPU switching remains a separate verification.

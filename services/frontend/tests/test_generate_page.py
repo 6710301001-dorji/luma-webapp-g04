@@ -47,3 +47,7 @@ def test_seed_input_resets_unusable_values_to_minus_one():
 
     for good in ("-1", "0", "7", "12345"):
         assert r[good] == good, f"{good} เป็นค่าที่ใช้ได้ ห้ามแตะ แต่ได้ {r[good]}"
+
+
+def test_selected_checkpoint_is_sent():
+    assert _run("seed", "generate.js")["checkpoint"] == "landscape [222]"

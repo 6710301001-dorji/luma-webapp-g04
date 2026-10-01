@@ -71,3 +71,9 @@ frontend/
 - Responsive web design: Lecture 4 หน้า 67
 - [htmlcheatsheet.com](https://htmlcheatsheet.com/) — tag reference, generator
 - [angrytools.com/css/animation](https://angrytools.com/css/animation/) — สร้าง CSS animation
+
+## Checkpoint selection (#205)
+
+The generate page loads available model titles from `/api/checkpoints`.
+Select a model before generating. If loading fails, a message explains that
+the default remains available; refresh to retry the list.

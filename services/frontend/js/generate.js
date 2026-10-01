@@ -74,6 +74,8 @@
         height,
       };
 
+      if (form.checkpoint) payload.checkpoint = form.checkpoint.value;
+
       setLoading(true);
 
       try {

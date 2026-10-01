@@ -13,7 +13,7 @@ import requests
 from flask import Flask, jsonify, request
 from PIL import Image
 
-from forge.client import ForgeError, edit_image, generate_image
+from forge.client import ForgeError, edit_image, generate_image, list_checkpoints
 
 
 def _image_size(image_b64):
@@ -243,6 +243,17 @@ def create_app(config=None):
             },
         })
 
+    @app.get("/forge/checkpoints")
+    def checkpoints():
+        if not app.config["FORGE_URL"]:
+            return jsonify({"error": "FORGE_URL is not configured"}), 503
+        try:
+            models = list_checkpoints(app.config["FORGE_URL"], min(app.config["FORGE_TIMEOUT_SECONDS"], 30))
+        except ForgeError as exc:
+            status = 504 if isinstance(exc.__cause__, requests.Timeout) else 502
+            return jsonify({"error": str(exc)}), status
+        return jsonify({"items": models})
+
     @app.post("/forge/txt2img")
     def txt2img():
         data = request.get_json(silent=True)
@@ -252,12 +263,17 @@ def create_app(config=None):
         if not isinstance(prompt, str) or not prompt.strip():
             return jsonify({"error": "prompt must be a nonempty string"}), 400
 
+        checkpoint = data.get("checkpoint", "default")
+        if not isinstance(checkpoint, str) or not checkpoint.strip() or len(checkpoint) > 512:
+            return jsonify({"error": "checkpoint must be a nonempty string of at most 512 characters"}), 400
+
         # An explicit scheduler needs a plain sampler name, without a legacy suffix.
         default_sampler = "DPM++ 2M Karras"
         if "scheduler" in data:
             default_sampler = "DPM++ 2M"
 
         payload = {
+            "checkpoint": checkpoint.strip(),
             "prompt": prompt.strip(),
             "negative_prompt": data.get("negative_prompt", ""),
             "steps": data.get("steps", 20),
