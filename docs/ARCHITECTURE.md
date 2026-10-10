@@ -194,6 +194,7 @@ def get_asset_image(asset_id):
 | `IMG2IMG_MAX_BYTES` | `10 MB` | เพดานต่อภาพหนึ่งใบใน `/api/img2img` (ต้นฉบับ/mask แยกกันนับ) ไม่อยู่ใน `config.py.example` — ตั้งเองได้ถ้าต้องการ |
 | `AI_ENGINE_TIMEOUT_SECONDS` | `30` | timeout ต่อคำขอหนึ่งครั้งไปหา ai-engine (`ai_engine_client.py`) ไม่อยู่ใน `config.py.example` |
 | `JOB_STALE_AFTER_SECONDS` | `FORGE_TIMEOUT_SECONDS × 2` (`240`) | งาน `running` เก่ากว่านี้ถือว่าค้าง เอากลับมาเข้าคิวใหม่ (`job_queue.py`) ไม่อยู่ใน `config.py.example` |
+| `AUTO_TAG_ENABLED` | `True` | หลังสร้างภาพเสร็จ worker ขอ tag จาก `04_features/auto_tag` แล้วผูกกับ asset (`job_queue.py`, #207) · `False` = ไม่เรียกเลย ไม่อยู่ใน `config.py.example` |
 | `SESSION_COOKIE_SECURE` | `False` | ต้องเป็น `True` ตอน deploy หลัง HTTPS จริง ไม่งั้น cookie `csrf_token` หลุดผ่าน HTTP ได้ (`set_cookie(..., secure=...)`) |
 | `WTF_CSRF_ENABLED` | `not TESTING` (คือ `True` นอกโหมดเทส) | ปิดเฉพาะตอน `TESTING=True` เพื่อให้เทสที่ไม่ได้ตรวจ CSRF ไม่ต้องแนบ token เอง |
 | `FORGE_DEFAULT_STEPS` | `20` | ค่า `steps` เริ่มต้นของ `POST /api/generate`/`/api/img2img` เมื่อไม่ส่งมา (Lecture 2 หน้า 7) |
@@ -241,13 +242,16 @@ v1 hardcode `debug=True, host="0.0.0.0"` = ทุกเครื่องบน 
  6. worker     services/forge_client.py → HTTP POST ai-engine /forge/txt2img (sync ทีละงาน)
  7. ai-engine  forge/ → เรียก Forge AI (Stable Diffusion WebUI) อ่าน seed จริงจาก info
  8. ai-engine  → ตอบ base64 กลับ backend
- 9. worker     บันทึกไฟล์นอก static/ (ชื่อ uuid4) + แถว assets + jobs.status=done, asset_id, seed_used
+ 9. worker     บันทึกไฟล์นอก static/ (ชื่อ uuid4)
+              → HTTP POST ai-engine /pipeline/04_features/auto_tag (best effort, #207)
+              → แถว assets + tags/asset_tags + jobs.status=done, asset_id, seed_used
 10. Browser    poll GET /api/jobs/<id> → pending / running / done / failed (+ error ถ้า failed)
 11. Browser    พอ done ได้ image_url → โหลดรูปผ่าน /api/assets/<id>/image ที่เช็ค ownership
 ```
 
 งานที่ล้ม (Forge ไม่ตอบ / ai-engine ล่ม) จะเป็น `status=failed` พร้อมเหตุผลในแถว job
 ไม่ค้างที่ `running` · ไม่ retry เอง ผู้ใช้กดส่งใหม่
+auto-tag ล้ม (ai-engine ตอบผิด / ล่มหลังสร้างภาพเสร็จ) **ไม่ทำให้งานล้ม** — ผู้ใช้ได้ภาพ แค่ไม่มี tag
 
 **จุดที่ v1 ทำไม่ถูกและต้องแก้**
 - ข้อ 4–8 ใน v1 เป็น **synchronous บล็อก 120 วินาที** → แก้ด้วยคิวที่ backend (ข้อ 4–5)
