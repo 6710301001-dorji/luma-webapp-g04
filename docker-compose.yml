@@ -1,0 +1,99 @@
+# =============================================================================
+# LUMA — จำลองระบบแยกเครื่องบนเครื่องเดียวด้วย Docker (Lecture 4 หน้า 54, 56)
+#
+#   เครื่อง (แบบ 3 เครื่อง)     service     ทำอะไร
+#   Web   · Windows (คนที่ 1)  web         Nginx + หน้าเว็บ → ส่ง /api/ ต่อให้ server  เปิดให้ browser ที่ :8080
+#   Data  · Windows (คนที่ 2)  db          Alembic migration ลง SQLite แล้วจบ (รันครั้งเดียว)
+#                              server      Flask backend + คิวสร้างภาพ — อยู่เครื่องเดียวกับไฟล์ SQLite
+#   AI    · Mac     (คนที่ 3)  ai-engine   pipeline 5 ส่วน + ตัวกลางไป Forge (arm64 ทดสอบแล้ว)
+#                              forge-mock  Forge ปลอม (--profile mock) แทน Stable Diffusion ตอนไม่มีการ์ดจอ
+#
+# SQLite เป็นไฟล์ ไม่ใช่ server — Flask ต้องอยู่เครื่องเดียวกับไฟล์ .db
+# (เปิดไฟล์ SQLite ข้ามเครื่องผ่าน network share ทำให้ไฟล์เสียได้) จึงวาง server ไว้เครื่อง Data
+#
+# แต่ละ service คุยกันด้วย "ชื่อ service" ผ่าน network ของ compose (เช่น http://ai-engine:8000)
+# เหมือนเครื่องคนละเครื่องคุยกันด้วย IP — ไม่มี localhost ในค่าที่ส่งหากัน
+#
+# ใช้งาน (ดู docker/README.md):
+#   docker compose --profile mock up --build     # ทดสอบครบระบบเครื่องเดียว ไม่ต้องมี GPU -> http://127.0.0.1:8080
+#   แยกเครื่องจริง (เครื่อง AI = Mac)            # ดูหัวข้อ "แยกเครื่องจริง" ใน docker/README.md
+# =============================================================================
+
+name: luma
+
+services:
+  db:
+    build:
+      context: .
+      dockerfile: docker/db.Dockerfile
+    environment:
+      LUMA_DATABASE_URI: sqlite:////data/luma.db
+    volumes:
+      - db-data:/data
+    restart: "no"
+
+  ai-engine:
+    build:
+      context: .
+      dockerfile: docker/ai-engine.Dockerfile
+    environment:
+      # ไม่ได้ตั้ง = ใช้ forge-mock · Forge จริงบนเครื่อง host = http://host.docker.internal:7860
+      FORGE_URL: ${FORGE_URL:-http://forge-mock:7860}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      # ผูก 127.0.0.1 เป็นค่าเริ่มต้น — เครื่องเดียว server คุยผ่าน network ของ compose อยู่แล้ว
+      # แยกเครื่อง (เครื่อง AI = Mac) ต้องให้เครื่อง server เข้าได้ -> ตั้ง AI_ENGINE_BIND=0.0.0.0
+      # ⚠️ ai-engine ยังไม่มีการยืนยันตัวตนระหว่าง service (#210) ทุกเครื่องในวง LAN จะยิงได้
+      - "${AI_ENGINE_BIND:-127.0.0.1}:${AI_ENGINE_PORT:-8000}:8000"
+    restart: unless-stopped
+
+  server:
+    build:
+      context: .
+      dockerfile: docker/server.Dockerfile
+    depends_on:
+      db:
+        condition: service_completed_successfully
+      ai-engine:
+        condition: service_healthy
+    environment:
+      LUMA_DATABASE_URI: sqlite:////data/luma.db
+      # เครื่องเดียว = ชื่อ service · แยกเครื่อง = IP ของเครื่อง AI เช่น http://192.168.1.30:8000
+      AI_ENGINE_URL: ${AI_ENGINE_URL:-http://ai-engine:8000}
+      # ตั้งในไฟล์ .env ข้างไฟล์นี้ (gitignore แล้ว) — ไม่ตั้ง = สุ่มใหม่ทุกครั้งที่ restart
+      LUMA_SECRET_KEY: ${LUMA_SECRET_KEY:-}
+    ports:
+      # ผูก 127.0.0.1 เป็นค่าเริ่มต้นแบบเดียวกับ run.py และ nginx (#181)
+      # ให้เครื่องอื่นในวงเข้าได้ -> ตั้ง LUMA_BIND=0.0.0.0
+      - "${LUMA_BIND:-127.0.0.1}:${LUMA_PORT:-5000}:5000"
+    volumes:
+      - db-data:/data
+      - uploads:/app/services/backend/instance/uploads
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+    depends_on:
+      server:
+        condition: service_healthy
+    environment:
+      # เครื่องเดียว = ชื่อ service · แยกเครื่อง = IP ของเครื่อง Data เช่น 192.168.1.20:5000
+      LUMA_BACKEND: ${LUMA_BACKEND:-server:5000}
+    ports:
+      # ผูก 127.0.0.1 เป็นค่าเริ่มต้น (#181) · เดโมให้เครื่องอื่นเปิดเว็บได้ -> WEB_BIND=0.0.0.0
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8080}:8080"
+    restart: unless-stopped
+
+  forge-mock:
+    profiles: ["mock"]
+    build:
+      context: .
+      dockerfile: docker/forge-mock.Dockerfile
+    restart: unless-stopped
+
+volumes:
+  db-data:   # ไฟล์ luma.db — อยู่รอดข้ามการลบ/สร้าง container ใหม่
+  uploads:   # ภาพที่ผู้ใช้สร้าง — DB เก็บแค่ path ตัวภาพอยู่ที่นี่

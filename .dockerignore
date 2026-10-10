@@ -1,0 +1,27 @@
+# ของที่ไม่ต้องส่งเข้า docker build — ทำให้ build เร็ว และกันของลับหลุดเข้า image
+# (image ที่ build แล้วแชร์ต่อได้ ใครเปิดก็อ่านไฟล์ข้างในได้หมด)
+
+.git
+.github
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+.venv
+venv
+
+# ค่าลับและข้อมูลจริง — ต้องไม่อยู่ใน image เด็ดขาด (v1 เคยหลุด SECRET_KEY)
+**/instance/config.py
+.env
+.env.*
+deploy/env
+**/*.db
+**/*.db-*
+**/*.sqlite*
+**/uploads
+services/database/backup/*-uploads
+
+# ไม่ได้ใช้ตอนรัน
+archive
+docs
+services/ai-engine/samples
+**/tests
