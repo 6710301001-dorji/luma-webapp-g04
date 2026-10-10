@@ -21,7 +21,9 @@ LEGACY_KARRAS_SAMPLERS = {
     "DPM++ SDE Karras": "DPM++ SDE",
     "DPM++ 2M SDE Karras": "DPM++ 2M SDE",
 }
-MAX_IMAGE_PIXELS = 2048 * 2048
+MAX_IMAGE_PIXELS = 4096 * 4096
+MAX_ANALYSIS_SIDE = 1024
+IMAGE_SIZE_ERROR = "ภาพใหญ่เกิน 16.8 ล้านพิกเซล / image exceeds 16.8 megapixels"
 extract_palette = import_module("pipeline.04_features.color_palette").extract_palette
 spatial_filters = import_module("pipeline.02_enhancement.spatial_filters")
 segmentation = import_module("pipeline.03_segmentation.segmentation")
@@ -37,14 +39,15 @@ def _checked_image_bytes(image_b64):
     except (ValueError, binascii.Error) as exc:
         raise ValueError("image must be valid base64") from exc
     try:
-        with Image.open(BytesIO(image_bytes)) as image:
+        with Image.open(BytesIO(image_bytes), formats=("PNG", "JPEG", "WEBP", "BMP", "TIFF")) as image:
             width, height = image.size
     except Image.DecompressionBombError as exc:
-        raise ValueError(f"image exceeds {MAX_IMAGE_PIXELS} pixels") from exc
-    except (OSError, ValueError) as exc:
+        raise ValueError(IMAGE_SIZE_ERROR) from exc
+    except Exception as exc:
+        # Untrusted image headers may raise plugin-specific errors.
         raise ValueError("image must contain a supported image") from exc
     if width * height > MAX_IMAGE_PIXELS:
-        raise ValueError(f"image exceeds {MAX_IMAGE_PIXELS} pixels")
+        raise ValueError(IMAGE_SIZE_ERROR)
     return image_bytes
 
 
@@ -60,6 +63,16 @@ def _decode_bgr_image(image_b64):
     if pixels is None:
         raise ValueError("image must contain a supported image")
     return pixels
+
+
+def _downsample_for_analysis(pixels):
+    """Bound the work for color statistics while preserving the original upload."""
+    height, width = pixels.shape[:2]
+    if max(height, width) <= MAX_ANALYSIS_SIDE:
+        return pixels
+    scale = MAX_ANALYSIS_SIDE / max(height, width)
+    size = (max(1, round(width * scale)), max(1, round(height * scale)))
+    return cv2.resize(pixels, size, interpolation=cv2.INTER_AREA)
 
 
 def _encode_png(image):
@@ -100,7 +113,7 @@ def create_app(config=None):
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 
-        palette = extract_palette(pixels, colors=colors)
+        palette = extract_palette(_downsample_for_analysis(pixels), colors=colors)
         return jsonify({
             "image": image_b64,
             "metrics": {"color_palette": [entry["hex"] for entry in palette]},
@@ -312,7 +325,7 @@ def create_app(config=None):
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 
-        result = classify_image(pixels)
+        result = classify_image(_downsample_for_analysis(pixels))
         return jsonify({
             "image": data["image"],
             "metrics": {
