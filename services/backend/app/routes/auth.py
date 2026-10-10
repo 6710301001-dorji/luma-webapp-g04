@@ -84,6 +84,12 @@ def register():
         return _invalid("email", "กรุณาระบุอีเมลที่ถูกต้อง / Valid email required")
     if not display_name:
         return _invalid("displayName", "กรุณาระบุชื่อแสดงผล / displayName required")
+    # ความยาวตาม schema (users.username String(80) · users.email String(255))
+    # SQLite ไม่บังคับความยาวเอง — ไม่ตรวจที่นี่ ชื่อยาว 1 MB ก็เก็บลงฐานได้ (fuzz #207)
+    if len(display_name) > 80:
+        return _invalid("displayName", "ชื่อแสดงผลยาวได้ไม่เกิน 80 ตัวอักษร / displayName must be at most 80 characters")
+    if len(email) > 255:
+        return _invalid("email", "อีเมลยาวได้ไม่เกิน 255 ตัวอักษร / email must be at most 255 characters")
     if not password or len(password) < 8:
         return _invalid("password", "รหัสผ่านต้องมีความยาวอย่างน้อย 8 ตัวอักษร / Password must be at least 8 chars")
 

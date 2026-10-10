@@ -13,10 +13,22 @@ from app.models import db, Asset, Job, Tag
 from app.services.forge_client import list_checkpoints, ForgeClientError
 from app.services.job_queue import enqueue
 from app.services.image_input import ALLOWED_SIZES
+from app.services.prompt_check import check_prompt
 from app.services.ai_engine_client import (
     blur_region, extract_color_palette, find_objects, remove_background, PipelineClientError)
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
+
+# id ใน URL ต้องไม่เกิน INTEGER ของ SQLite (64 บิต) — เกินแล้ว SQLite โยน OverflowError -> 500
+# int(max=...) ของ werkzeug ทำให้ id ที่ใหญ่กว่านี้ไม่ match route เลย -> 404 เหมือน id ที่ไม่มีจริง
+ID = "int(max=9223372036854775807)"
+
+# seed สูงสุดที่ Forge/A1111 สุ่มให้เองคือ 2**32 - 1 — ใหญ่กว่า 64 บิตเคยเข้าคิวได้
+# แล้วไปล้มตอนบันทึก jobs.seed_used หลังใช้ GPU สร้างภาพเสร็จแล้ว (fuzz #207)
+SEED_MAX = 2 ** 32 - 1
+
+# ?tags= ทุกตัวกลายเป็น EXISTS หนึ่งชั้นใน SQL — 5000 ตัวเกินความลึกที่ SQLite รับ (1000) -> 500
+TAG_FILTER_MAX = 20
 
 # sampler ที่รับได้ (#180) — Forge ไม่ปฏิเสธชื่อที่ไม่รู้จัก มันเงียบๆ เปลี่ยนไปใช้
 # DPM++ 2M/Karras แทน ผู้ใช้จึงเข้าใจผิดว่าได้ภาพจาก sampler ที่ขอ ต้องปัดตกที่นี่
@@ -53,6 +65,10 @@ def _parse_generation_params(data: dict, default_width: int = 512, default_heigh
     negative_prompt = data.get("negative_prompt", "")
     if not isinstance(negative_prompt, str):
         return bad("negative_prompt ต้องเป็นข้อความ / negative_prompt must be a string")
+    # negative prompt ผ่านตัวแยกของ Forge ตัวเดียวกับ prompt จึงพังได้แบบเดียวกัน
+    problem = _prompt_problem(negative_prompt.strip(), "negative_prompt")
+    if problem:
+        return bad(problem)
 
     # isinstance(True, int) เป็น True และ int(True) = 1 — ต้องกัน bool ก่อนแปลงเป็นตัวเลข
     # ไม่งั้น {"steps": true} ผ่านไปถึง ai-engine และ {"seed": false} กลายเป็น seed 0 (API_CONTRACT.md)
@@ -92,9 +108,9 @@ def _parse_generation_params(data: dict, default_width: int = 512, default_heigh
         return bad("seed ต้องเป็นตัวเลขจำนวนเต็ม / seed must be an integer")
     # ai-engine ปฏิเสธ seed < -1 (app.py:273, :359) — ถ้าไม่ดักที่นี่ งานจะเข้าคิวไปแล้ว
     # ค่อยล้มทีหลัง ผู้ใช้เห็นแค่ "AI engine ตอบกลับด้วยสถานะ 400" ซึ่งไม่บอกว่าตัวเองกรอกอะไรผิด
-    if raw_seed < -1:
-        return bad("seed ต้องเป็น -1 (สุ่ม) หรือจำนวนเต็มตั้งแต่ 0 ขึ้นไป "
-                   "/ seed must be -1 (random) or a non-negative integer")
+    if raw_seed < -1 or raw_seed > SEED_MAX:
+        return bad(f"seed ต้องเป็น -1 (สุ่ม) หรือจำนวนเต็ม 0 ถึง {SEED_MAX} "
+                   f"/ seed must be -1 (random) or an integer from 0 to {SEED_MAX}")
     seed = raw_seed
 
     raw_width = data.get("width", default_width)
@@ -116,6 +132,14 @@ def _parse_generation_params(data: dict, default_width: int = 512, default_heigh
         "width": width,
         "height": height,
     }, None
+
+
+def _prompt_problem(text: str, field: str) -> str | None:
+    """ตรวจ prompt / negative_prompt ด้วยเพดานจาก config (services/prompt_check.py อธิบายที่มา)"""
+    config = current_app.config
+    return check_prompt(text, field,
+                        max_chars=config.get("PROMPT_MAX_CHARS", 1000),
+                        max_depth=config.get("PROMPT_MAX_BRACKET_DEPTH", 20))
 
 
 @api_bp.get("/checkpoints")
@@ -148,6 +172,9 @@ def handle_generate():
     if not isinstance(prompt, str) or not prompt.strip():
         return jsonify({"error": "กรุณาระบุคำบรรยายภาพ (prompt) / prompt is required"}), 400
     prompt = prompt.strip()
+    problem = _prompt_problem(prompt, "prompt")
+    if problem:
+        return jsonify({"error": problem}), 400
 
     params, error = _parse_generation_params(data)
     if error:
@@ -162,7 +189,7 @@ def handle_generate():
     return jsonify({"status": "queued", "job_id": job.id}), 202
 
 
-@api_bp.route("/jobs/<int:job_id>", methods=["GET"])
+@api_bp.route(f"/jobs/<{ID}:job_id>", methods=["GET"])
 def get_job(job_id: int):
     """GET /api/jobs/<job_id> — สถานะงานสร้างภาพ pending | running | done | failed (#21)
 
@@ -197,7 +224,8 @@ def list_assets():
     if "user_id" not in session:
         return jsonify({"error": "ยังไม่ได้เข้าสู่ระบบ / Unauthorized"}), 401
 
-    page = request.args.get("page", 1, type=int)
+    # page ใหญ่เกิน 64 บิตทำ OFFSET ของ SQLite ล้น -> 500 · หน้าเกินจำนวนจริงตอบรายการว่างอยู่แล้ว
+    page = min(request.args.get("page", 1, type=int), 1_000_000)
     per_page = request.args.get("per_page", 20, type=int)
     q = request.args.get("q", "", type=str).strip()
     tags_param = request.args.get("tags", "", type=str).strip()
@@ -210,7 +238,11 @@ def list_assets():
 
     if tags_param:
         # AND intersection ตาม API_CONTRACT ข้อ 2: ต้องมีครบทุก tag ที่ระบุ
-        tag_list = [t.strip() for t in tags_param.split(",") if t.strip()]
+        # ตัดซ้ำแบบไม่สนตัวพิมพ์ — tags.name เป็น COLLATE NOCASE "Warm" กับ "warm" คือ tag เดียว
+        tag_list = list({t.strip().lower(): t.strip() for t in tags_param.split(",") if t.strip()}.values())
+        if len(tag_list) > TAG_FILTER_MAX:
+            return jsonify({"error": f"กรองได้ครั้งละไม่เกิน {TAG_FILTER_MAX} tag "
+                                     f"/ at most {TAG_FILTER_MAX} tags per filter"}), 400
         for tag_name in tag_list:
             query = query.filter(Asset.tags.any(Tag.name == tag_name))
 
@@ -263,7 +295,7 @@ def list_tags():
     return jsonify({"items": items, "total": len(items)}), 200
 
 
-@api_bp.route("/assets/<int:asset_id>/image", methods=["GET"])
+@api_bp.route(f"/assets/<{ID}:asset_id>/image", methods=["GET"])
 def get_asset_image(asset_id: int):
     """GET /api/assets/<asset_id>/image — เสิร์ฟไฟล์ภาพจริง (docs/API_CONTRACT.md ข้อ 2)
 
@@ -284,7 +316,7 @@ def get_asset_image(asset_id: int):
     return send_file(full_path, mimetype="image/png")
 
 
-@api_bp.route("/assets/<int:asset_id>", methods=["DELETE"])
+@api_bp.route(f"/assets/<{ID}:asset_id>", methods=["DELETE"])
 def delete_asset(asset_id: int):
     """DELETE /api/assets/<asset_id> — ลบภาพของตัวเอง ทั้งไฟล์และแถว (#58, docs/API_CONTRACT.md)
 
