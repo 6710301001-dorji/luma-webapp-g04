@@ -65,6 +65,18 @@ def test_read_exif_uses_camera_sub_ifd(tmp_path):
     }
 
 
+def test_read_exif_handles_invalid_camera_values(tmp_path):
+    path = tmp_path / "camera-invalid-sub-ifd.jpg"
+    exif = Image.Exif()
+    camera = exif.get_ifd(0x8769)
+    camera[34855] = (100, 100)  # EXIF permits multiple ISO readings
+    camera[37386] = IFDRational(0, 0)  # undefined focal length
+    camera[41989] = 0  # EXIF uses zero for an unknown 35 mm equivalent
+    Image.new("RGB", (16, 16)).save(path, exif=exif)
+
+    assert acquisition.read_exif(path) == {"iso": 100}
+
+
 def test_extreme_aspect_ratio_is_rejected(tmp_path):
     path = tmp_path / "strip.png"
     Image.new("RGB", (100, 1)).save(path)

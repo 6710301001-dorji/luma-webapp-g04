@@ -23,8 +23,9 @@ The script verifies SHA-256 and dimensions before running the detector. A
 changed source file fails rather than silently changing the result. Input
 photos are resized to a longest side of 1024 pixels. Ground-truth coordinates
 in `cases.json` refer to the originals and are scaled with the images. The
-detector settings are confidence 0.6 and minimum box side 20 pixels; a match
-requires one-to-one IoU of at least 0.5.
+detector settings are confidence 0.6 and minimum box side 20 pixels. The report
+shows two one-to-one scores: whether a detection center is inside a hand-drawn
+face box, and whether the boxes overlap with IoU of at least 0.5.
 
 The strict score is sensitive to the hand-drawn box extent. This four-photo
 sample is a reproducible course demonstration, not a held-out face benchmark.

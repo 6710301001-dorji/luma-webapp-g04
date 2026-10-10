@@ -165,8 +165,9 @@ def build(images_dir, truth_dir, output_dir=DEFAULT_OUTPUT):
              '## Morphology ablation', '',
              f"- Raw HSV macro IoU **{raw_summary['macro_iou']:.4f}**; after OPEN/CLOSE **{summary['macro_iou']:.4f}** (change **{ablation['delta_macro_iou']:+.4f}**).",
              f"- Raw precision/recall **{raw_summary['macro_precision']:.4f} / {raw_summary['macro_recall']:.4f}**; after OPEN/CLOSE **{summary['macro_precision']:.4f} / {summary['macro_recall']:.4f}**.",
-             f"- IoU improved in **{improved}** photos, worsened in **{worsened}**, unchanged in **{ablation['unchanged_cases']}**.",
-             'The gain is small and does not hold for every photo. The cleanup increases precision while slightly reducing recall; it is not evidence of universal improvement. Per-photo values are in morphology_ablation.csv.', '',
+             f"- IoU improved in **{improved}** photos, worsened in **{worsened}**, unchanged in **{ablation['unchanged_cases']}**.", '',
+             'The per-photo effects are mixed; the macro scores above summarize the net change. '
+             'Per-photo values are in morphology_ablation.csv.', '',
              'The earlier selected five-image macro IoU was 0.7133. The wider set is more representative of this sunflower class, but is not an independent held-out dataset or evidence for other object classes.', '',
              '## Interpretation and limits', '',
              'Precision exceeds recall: the fixed selection misses substantial parts of some flowers. See worst_cases.png rather than only the strongest examples.', '',

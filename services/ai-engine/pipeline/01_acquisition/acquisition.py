@@ -89,9 +89,18 @@ def read_exif(path):
     }
     result = {}
     for tag, name in names.items():
-        if tag in raw:
-            value = raw[tag]
-            result[name] = float(value) if name in ("focal_length_mm", "exposure_seconds") else int(value)
+        if tag not in raw:
+            continue
+        value = raw[tag]
+        if isinstance(value, tuple):
+            value = value[0] if value else None
+        try:
+            number = float(value)
+        except (TypeError, ValueError, ZeroDivisionError, OverflowError):
+            continue
+        if not math.isfinite(number) or number <= 0:
+            continue
+        result[name] = number if name in ("focal_length_mm", "exposure_seconds") else int(number)
     return result
 
 

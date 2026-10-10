@@ -31,6 +31,16 @@ def test_negative_image_and_missed_face_are_scored_separately():
     assert (missed['true_positive'], missed['false_negative'], missed['recall']) == (0, 1, 0.0)
 
 
+def test_center_matching_distinguishes_face_found_from_box_alignment():
+    truth = [[0, 0, 20, 20], [30, 0, 20, 20]]
+    found = [[8, 8, 4, 4], [38, 8, 4, 4]]
+    assert report.score_boxes(truth, found)['true_positive'] == 0
+    assert report.score_centers(truth, found) == {
+        'true_positive': 2, 'false_positive': 0, 'false_negative': 0,
+        'precision': 1.0, 'recall': 1.0,
+    }
+
+
 def test_manifest_and_committed_result_counts_agree():
     manifest = json.loads((ROOT / 'cases.json').read_text())
     results = json.loads((ROOT / 'RESULTS.json').read_text())
@@ -41,3 +51,8 @@ def test_manifest_and_committed_result_counts_agree():
     assert sum(row['false_negative'] for row in results['cases']) == results['summary']['false_negative']
     assert (results['summary']['true_positive'] + results['summary']['false_negative']
             == results['summary']['faces'])
+    for row in results['cases']:
+        strict = report.score_boxes(row['truth_boxes'], row['predicted_boxes'])
+        assert all(row[key] == value for key, value in strict.items())
+        assert row['center_hits'] == report.score_centers(row['truth_boxes'], row['predicted_boxes'])
+    assert sum(row['center_hits']['true_positive'] for row in results['cases']) == results['summary']['center_hits']['true_positive']

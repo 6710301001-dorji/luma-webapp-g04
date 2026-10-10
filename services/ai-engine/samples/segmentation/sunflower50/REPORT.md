@@ -12,7 +12,8 @@ All 50 cases (0001–0050) use the unchanged five-photo HSV settings; no per-ima
 - Raw HSV macro IoU **0.6589**; after OPEN/CLOSE **0.6609** (change **+0.0020**).
 - Raw precision/recall **0.8672 / 0.7389**; after OPEN/CLOSE **0.8740 / 0.7369**.
 - IoU improved in **32** photos, worsened in **18**, unchanged in **0**.
-The gain is small and does not hold for every photo. The cleanup increases precision while slightly reducing recall; it is not evidence of universal improvement. Per-photo values are in morphology_ablation.csv.
+
+The per-photo effects are mixed; the macro scores above summarize the net change. Per-photo values are in morphology_ablation.csv.
 
 The earlier selected five-image macro IoU was 0.7133. The wider set is more representative of this sunflower class, but is not an independent held-out dataset or evidence for other object classes.
 

@@ -11,9 +11,10 @@ import cv2
 
 HERE = Path(__file__).resolve().parent
 SEGMENTATION_PATH = HERE.parents[1] / 'pipeline' / '03_segmentation' / 'segmentation.py'
-MODEL_PATH = SEGMENTATION_PATH.parent / 'face_detection_yunet_2023mar.onnx'
 MAX_SIDE = 1024
 IOU_THRESHOLD = 0.5
+CONFIDENCE_MIN = 0.6
+MIN_FACE_SIZE = 20
 
 
 def _segmentation_module():
@@ -62,6 +63,28 @@ def score_boxes(truth, predicted, threshold=IOU_THRESHOLD):
             'matched_ious': matched_ious}
 
 
+def score_centers(truth, predicted):
+    """Count faces found when a detection center falls inside a truth box."""
+    candidates = sorted(
+        ((box_iou(actual, found), actual_index, found_index)
+         for actual_index, actual in enumerate(truth)
+         for found_index, found in enumerate(predicted)
+         if actual[0] <= found[0] + found[2] / 2 < actual[0] + actual[2]
+         and actual[1] <= found[1] + found[3] / 2 < actual[1] + actual[3]),
+        reverse=True,
+    )
+    matched_actual, matched_found = set(), set()
+    for _, actual_index, found_index in candidates:
+        if actual_index not in matched_actual and found_index not in matched_found:
+            matched_actual.add(actual_index)
+            matched_found.add(found_index)
+    tp = len(matched_found)
+    fp, fn = len(predicted) - tp, len(truth) - tp
+    return {'true_positive': tp, 'false_positive': fp, 'false_negative': fn,
+            'precision': tp / (tp + fp) if tp + fp else 1.0,
+            'recall': tp / (tp + fn) if tp + fn else 1.0}
+
+
 def _scale_box(box, source_size, target_size):
     x, y, width, height = box
     source_width, source_height = source_size
@@ -90,15 +113,16 @@ def build(images_dir, output_dir=HERE):
             raise ValueError(f"source dimensions differ for {case['id']}")
         scale = min(1.0, MAX_SIDE / max(image.shape[:2]))
         size = (round(case['width'] * scale), round(case['height'] * scale))
-        resized = cv2.resize(image, size) if scale < 1 else image
+        resized = cv2.resize(image, size, interpolation=cv2.INTER_AREA) if scale < 1 else image
         truth = [_scale_box(box, (case['width'], case['height']), size) for box in case['boxes']]
-        found = detector.find_faces(resized)
+        found = detector.find_faces(resized, confidence_min=CONFIDENCE_MIN, min_size=MIN_FACE_SIZE)
         predicted = [
             [face['bounding_box'][key] for key in ('x', 'y', 'width', 'height')]
             for face in found
         ]
         rows.append({'case': case['id'], 'image_size': list(size), 'truth_boxes': truth,
-                     'predicted_boxes': predicted, **score_boxes(truth, predicted)})
+                     'predicted_boxes': predicted, 'center_hits': score_centers(truth, predicted),
+                     **score_boxes(truth, predicted)})
     tp = sum(row['true_positive'] for row in rows)
     fp = sum(row['false_positive'] for row in rows)
     fn = sum(row['false_negative'] for row in rows)
@@ -106,15 +130,25 @@ def build(images_dir, output_dir=HERE):
     precision = tp / (tp + fp) if tp + fp else 1.0
     recall = tp / (tp + fn) if tp + fn else 1.0
     f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+    center_tp = sum(row['center_hits']['true_positive'] for row in rows)
+    center_fp = sum(row['center_hits']['false_positive'] for row in rows)
+    center_fn = sum(row['center_hits']['false_negative'] for row in rows)
     summary = {'images': len(rows), 'faces': tp + fn, 'true_positive': tp,
                'false_positive': fp, 'false_negative': fn, 'precision': precision,
                'recall': recall, 'f1': f1,
+               'center_hits': {
+                   'true_positive': center_tp, 'false_positive': center_fp,
+                   'false_negative': center_fn,
+                   'precision': center_tp / (center_tp + center_fp) if center_tp + center_fp else 1.0,
+                   'recall': center_tp / (center_tp + center_fn) if center_tp + center_fn else 1.0,
+               },
                'mean_matched_iou': sum(matched_ious) / len(matched_ious) if matched_ious else None}
     payload = {'dataset': 'Four manually annotated NASA/PhotoArt50 photos',
                'annotation_method': manifest['annotation_method'],
-               'model_sha256': hashlib.sha256(MODEL_PATH.read_bytes()).hexdigest(),
+               'model_sha256': hashlib.sha256(detector._FACE_MODEL_PATH.read_bytes()).hexdigest(),
                'opencv_version': cv2.__version__, 'max_image_side': MAX_SIDE,
-               'confidence_min': 0.6, 'min_size': 20, 'match_iou_threshold': IOU_THRESHOLD,
+               'confidence_min': CONFIDENCE_MIN, 'min_size': MIN_FACE_SIZE,
+               'match_iou_threshold': IOU_THRESHOLD,
                'summary': summary, 'cases': rows}
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / 'RESULTS.json').write_text(json.dumps(payload, indent=2) + '\n', encoding='utf-8')
@@ -125,25 +159,31 @@ def build(images_dir, output_dir=HERE):
         'before running YuNet. They are team-authored annotations, not labels supplied '
         'or independently verified by the photo sources.', '',
         f'Images are scaled to at most {MAX_SIDE} pixels on the longest side. '
-        'YuNet uses confidence >= 0.6 and minimum box side 20 pixels. '
+        f'YuNet uses confidence >= {CONFIDENCE_MIN} and minimum box side {MIN_FACE_SIZE} pixels. '
         f'One-to-one matches require box IoU >= {IOU_THRESHOLD}.', '',
-        '| Case | Truth | Detected | TP | FP | FN | Precision | Recall | Matched IoU |',
-        '|---|---:|---:|---:|---:|---:|---:|---:|---:|',
+        '| Case | Truth | Detected | Center hits | IoU TP | IoU FP | IoU FN | IoU precision | IoU recall | Matched IoU |',
+        '|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|',
     ]
     for row in rows:
         iou = f"{row['mean_matched_iou']:.3f}" if row['mean_matched_iou'] is not None else '—'
         lines.append(f"| {row['case']} | {row['ground_truth_faces']} | {row['detected_faces']} | "
+                     f"{row['center_hits']['true_positive']} | "
                      f"{row['true_positive']} | {row['false_positive']} | {row['false_negative']} | "
                      f"{row['precision']:.3f} | {row['recall']:.3f} | {iou} |")
     mean_iou = (f"{summary['mean_matched_iou']:.3f}"
                 if summary['mean_matched_iou'] is not None else 'undefined')
     lines.extend([
         '',
-        f'Micro precision **{precision:.3f}**, recall **{recall:.3f}**, '
+        f"Face localization (detection center inside a hand-drawn box): "
+        f"**{center_tp}/{summary['faces']} faces found**, **{center_fp} extra detections**; "
+        f"micro precision **{summary['center_hits']['precision']:.3f}**, "
+        f"recall **{summary['center_hits']['recall']:.3f}**.", '',
+        f'Strict box alignment (IoU >= {IOU_THRESHOLD}): **{tp}/{summary["faces"]}** matched; '
+        f'micro precision **{precision:.3f}**, recall **{recall:.3f}**, '
         f'F1 **{f1:.3f}**; mean IoU among matched faces **{mean_iou}**.', '',
-        'The strict IoU score measures box alignment, not just whether a face was found. '
-        'Review the recorded boxes when interpreting a low match count: a detection inside '
-        'a broader hand-drawn face region can still fall below 0.5 IoU.', '',
+        'Center-in-box measures face presence, while IoU also measures agreement about box extent. '
+        'These hand-drawn boxes include more hair, neck, or helmet edge than YuNet boxes, '
+        'so a correct face location can score below 0.5 IoU.', '',
         'This small, hand-annotated convenience sample measures this exact detector and threshold. '
         'It is not a held-out benchmark or a claim of general face-detection accuracy. '
         'A no-face image contributes false positives if any are detected; its precision and '
