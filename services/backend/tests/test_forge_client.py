@@ -167,3 +167,11 @@ def test_ai_engine_timeout_returns_504_not_502():
     assert "10.0.0.5" not in message and "8000" not in message and "http" not in message, message
     assert "ช้า" in message or "timed out" in message.lower()
 
+
+def test_removed_checkpoint_error_is_not_reported_as_forge_offline():
+    from app.services.forge_client import _describe_engine_failure
+    class Response:
+        status_code = 502
+        def json(self):
+            return {"error": "Forge checkpoint is no longer available; refresh the model list"}
+    assert "Selected checkpoint is no longer available" in _describe_engine_failure(Response())

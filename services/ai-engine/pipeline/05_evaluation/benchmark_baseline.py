@@ -436,18 +436,19 @@ def record_endpoint_baseline(output_dir, backend_url, repeats=10, timeout=180,
 
     endpoint_specs = (
         {
-            "endpoint": "POST /api/img2img",
+            "endpoint": "POST /api/pipeline/remove-background",
             "method": "POST",
-            "path": "/api/img2img",
+            "path": "/api/pipeline/remove-background",
             "payload": {
-                "prompt": "endpoint timing image",
-                "init_image": image,
-                "mode": "text",
-                "steps": 20,
-                "seed": 6800,
+                "image": image,
+                "region": {
+                    "x": region_start,
+                    "y": region_start,
+                    "width": region_size,
+                    "height": region_size,
+                },
             },
-            "valid": lambda body: body.get("status") == "success"
-            and isinstance(body.get("asset_id"), int),
+            "valid": lambda body: isinstance(body.get("image"), str) and bool(body["image"]),
         },
         {
             "endpoint": "GET /api/assets",
@@ -569,8 +570,6 @@ def record_endpoint_baseline(output_dir, backend_url, repeats=10, timeout=180,
         "warmup_requests_per_endpoint": 1,
         "timeout_s": timeout,
         "input_image_px": [image_size, image_size],
-        "img2img_steps": 20,
-        "img2img_seed": 6800,
         "machine": platform.platform(),
         "python": platform.python_version(),
         "note": (

@@ -1,7 +1,21 @@
-"""HSV segmentation and background removal (Lecture 5, pp. 55-62)."""
+"""HSV segmentation, background removal (Lecture 5, pp. 55-62), and face detection."""
+
+from pathlib import Path
 
 import cv2
 import numpy as np
+
+# YuNet — OpenCV's own bundled DNN face detector (opencv_zoo, 2023mar release).
+# https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet
+#
+# cv2.CascadeClassifier (Haar cascade) does not exist in this project's pinned
+# opencv-python==5.0.0.93 build — checked with hasattr(cv2, "CascadeClassifier")
+# on this exact version, it is False, and no haarcascade_*.xml ships in the wheel
+# either. YuNet is the smallest face detector this OpenCV build actually has
+# (232 KB ONNX, no torch/pytorch — cv2's own dnn module runs it) so it is the
+# first learned model in this pipeline, unlike every other 0X_ module here which
+# is deliberately rule-based (see 04_features/auto_tag.py's own docstring).
+_FACE_MODEL_PATH = Path(__file__).parent / "face_detection_yunet_2023mar.onnx"
 
 
 def _check_image(image):
@@ -120,3 +134,57 @@ def segment(image, center_degrees, tolerance_degrees=30,
         "objects": find_objects(mask),
         "image": remove_background(image, mask),
     }
+
+
+def find_faces(image, confidence_min=0.6, min_size=20):
+    """Detect faces with YuNet and return boxes sorted by area, largest first.
+
+    confidence_min filters the detector's own [0, 1] score — lower catches more
+    faces at the cost of more false positives, higher is stricter.
+    min_size drops detections smaller than this on either side in pixels, after
+    the confidence filter (YuNet has no separate minimum-size knob of its own).
+
+    Returns [] on an image with no face — that is a normal result, not an error.
+    """
+    image = _check_image(image)
+    if (
+        isinstance(confidence_min, bool)
+        or not np.isscalar(confidence_min)
+        or not np.isfinite(confidence_min)
+        or not 0 <= confidence_min <= 1
+    ):
+        raise ValueError("confidence_min must be a number in [0, 1]")
+    if isinstance(min_size, bool) or not isinstance(min_size, (int, np.integer)) or min_size < 0:
+        raise ValueError("min_size must be a nonnegative integer")
+    if not _FACE_MODEL_PATH.is_file():
+        raise RuntimeError(
+            f"face detection model missing: {_FACE_MODEL_PATH} "
+            "(see README.md for where to download it)"
+        )
+
+    height, width = image.shape[:2]
+    detector = cv2.FaceDetectorYN_create(
+        str(_FACE_MODEL_PATH), "", (width, height), score_threshold=float(confidence_min)
+    )
+    detector.setInputSize((width, height))
+    _, detected = detector.detect(image)
+
+    objects = []
+    for row in [] if detected is None else detected:
+        x, y, w, h, score = row[0], row[1], row[2], row[3], row[-1]
+        # YuNet can return a box that slightly overshoots the image edge —
+        # clip it so the frontend never draws a rectangle outside the canvas.
+        x0 = int(np.clip(round(x), 0, width))
+        y0 = int(np.clip(round(y), 0, height))
+        x1 = int(np.clip(round(x + w), 0, width))
+        y1 = int(np.clip(round(y + h), 0, height))
+        box_width, box_height = x1 - x0, y1 - y0
+        if box_width < min_size or box_height < min_size:
+            continue
+        objects.append({
+            "bounding_box": {"x": x0, "y": y0, "width": box_width, "height": box_height},
+            "area": float(box_width * box_height),
+            "confidence": float(score),
+        })
+    objects.sort(key=lambda item: item["area"], reverse=True)
+    return objects

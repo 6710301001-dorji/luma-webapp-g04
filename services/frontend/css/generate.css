@@ -94,9 +94,13 @@ textarea.form-control {
   cursor: not-allowed;
 }
 
+/* เดิมล็อก aspect-ratio: 1/1 ไว้ตายตัว — ภาพที่ขอ 768x512 หรือ 512x768 (ไม่ใช่สี่เหลี่ยม
+   จัตุรัส) เลยถูกบีบ/มีแถบดำคาดใน preview จนดูเหมือนขนาดไม่ตรงกับที่ตั้งไว้ ทั้งที่ไฟล์จริง
+   ถูกขนาดแล้ว (ai-engine/Forge เคารพ width/height ที่ส่งไปอยู่แล้ว) — เอา aspect-ratio ตายตัว
+   ออก ให้กล่องยึดตามสัดส่วนจริงของภาพที่โหลดมาแทน เหมือน .i2i-layer ของหน้า img2img */
 .preview-container {
   width: 100%;
-  aspect-ratio: 1 / 1;
+  min-height: 320px;
   background: #f8f9fa;
   border: 2px dashed #d0d7de;
   border-radius: 8px;
@@ -110,13 +114,15 @@ textarea.form-control {
 .preview-container.has-image {
   border-style: solid;
   background: #000000;
+  min-height: 0;
 }
 
 .preview-image {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
   display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 70vh;
 }
 
 .preview-placeholder {
@@ -131,6 +137,30 @@ textarea.form-control {
   font-size: 0.85rem;
   color: #555;
   line-height: 1.6;
+}
+
+.btn-download {
+  margin-top: 0.5rem;
+  padding: 0.6rem 1rem;
+  background: #ffffff;
+  color: #2f3ba3;
+  border: 1px solid #2f3ba3;
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.btn-download:hover:not(:disabled) {
+  background: #eef1ff;
+}
+
+.btn-download:disabled {
+  color: #9aa0d6;
+  border-color: #9aa0d6;
+  cursor: not-allowed;
 }
 
 .generate-error {

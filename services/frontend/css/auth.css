@@ -52,12 +52,48 @@
   border: 1px solid #ccc;
   border-radius: 8px;
   font: inherit;
+  width: 100%;
 }
 
 .auth-field__input:focus-visible {
   outline: 2px solid #2f3ba3;
   outline-offset: 1px;
   border-color: #2f3ba3;
+}
+
+/* ช่องรหัสผ่าน + ปุ่มรูปตาสลับแสดง/ซ่อน (password-toggle.js) */
+.auth-field__input-wrap {
+  position: relative;
+  display: flex;
+}
+
+.auth-field__input-wrap .auth-field__input {
+  padding-right: 2.5rem;
+}
+
+.auth-field__toggle {
+  position: absolute;
+  top: 50%;
+  right: 0.5rem;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem;
+  background: none;
+  border: none;
+  color: #777;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.auth-field__toggle:hover {
+  color: #2f3ba3;
+}
+
+.auth-field__toggle:focus-visible {
+  outline: 2px solid #2f3ba3;
+  outline-offset: 1px;
 }
 
 .auth-submit {

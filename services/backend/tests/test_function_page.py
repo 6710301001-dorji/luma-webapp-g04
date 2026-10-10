@@ -24,6 +24,7 @@ if BASE_DIR not in sys.path:
 from app import create_app
 
 BLUR_URL = "/api/pipeline/blur-region"
+REMOVE_BG_URL = "/api/pipeline/remove-background"
 OBJECTS_URL = "/api/pipeline/find-objects"
 REGION = {"x": 10, "y": 20, "width": 100, "height": 50}
 
@@ -137,6 +138,87 @@ def test_blur_missing_image_in_response_is_502():
     assert res.status_code == 502
 
 
+# ------------------------------------------------------------ remove-background
+
+def test_remove_background_forwards_region_and_returns_image():
+    """[กรณีทดสอบ]: input ถูกต้อง -> ยิงไป 03_segmentation/remove-background แล้วคืนภาพที่ได้"""
+    client = _client()
+    with patch("app.services.ai_engine_client.requests.post",
+               return_value=_ok({"image": "YmFzZTY0"})) as post:
+        res = client.post(REMOVE_BG_URL, json={"image": "aGVsbG8=", "region": REGION})
+
+    assert res.status_code == 200
+    assert res.get_json()["image"] == "YmFzZTY0"
+    url, kwargs = post.call_args[0][0], post.call_args[1]
+    assert url.endswith("/pipeline/03_segmentation/remove-background")
+    assert kwargs["json"]["params"] == {"region": REGION}
+
+
+def test_remove_background_strips_data_url_prefix_before_forwarding():
+    client = _client()
+    with patch("app.services.ai_engine_client.requests.post",
+               return_value=_ok({"image": "YmFzZTY0"})) as post:
+        client.post(REMOVE_BG_URL, json={"image": "data:image/png;base64,aGVsbG8=", "region": REGION})
+
+    assert post.call_args[1]["json"]["image"] == "aGVsbG8="
+
+
+@pytest.mark.parametrize("body", [
+    "ไม่ใช่ json",
+    {},
+    {"image": "   ", "region": REGION},
+    {"image": "aGVsbG8="},                                          # ไม่มี region
+    {"image": "aGVsbG8=", "region": "ไม่ใช่ object"},
+    {"image": "aGVsbG8=", "region": {"x": 0, "y": 0, "width": 10}},  # ขาด height
+    {"image": "aGVsbG8=", "region": {**REGION, "x": -1}},            # ติดลบ
+    {"image": "aGVsbG8=", "region": {**REGION, "width": 0}},         # กว้าง 0
+    {"image": "aGVsbG8=", "region": {**REGION, "x": True}},          # bool ไม่ใช่ int
+    {"image": "aGVsbG8=", "region": {**REGION, "y": 1.5}},           # ทศนิยม
+])
+def test_remove_background_rejects_bad_input_without_calling_ai_engine(body):
+    """[กรณีทดสอบ]: input ผิดต้องได้ 400 และต้องไม่ยิงไปหา ai-engine เลย"""
+    client = _client()
+    with patch("app.services.ai_engine_client.requests.post") as post:
+        if isinstance(body, str):
+            res = client.post(REMOVE_BG_URL, data=body)
+        else:
+            res = client.post(REMOVE_BG_URL, json=body)
+
+    assert res.status_code == 400, body
+    assert "error" in res.get_json()
+    post.assert_not_called()
+
+
+def test_remove_background_relays_ai_engine_message_on_400():
+    client = _client()
+    response = Mock(status_code=400)
+    response.json.return_value = {"error": "region must stay within the image bounds"}
+
+    with patch("app.services.ai_engine_client.requests.post", return_value=response):
+        res = client.post(REMOVE_BG_URL, json={"image": "aGVsbG8=", "region": REGION})
+
+    assert res.status_code == 400
+    assert "region must stay within the image bounds" in res.get_json()["error"]
+
+
+def test_remove_background_ai_engine_unreachable_returns_502():
+    client = _client()
+    import requests as requests_lib
+    with patch("app.services.ai_engine_client.requests.post",
+               side_effect=requests_lib.exceptions.ConnectionError("no route")):
+        res = client.post(REMOVE_BG_URL, json={"image": "aGVsbG8=", "region": REGION})
+
+    assert res.status_code == 502
+
+
+def test_remove_background_missing_image_in_response_is_502():
+    client = _client()
+    with patch("app.services.ai_engine_client.requests.post", return_value=_ok({"metrics": {}})):
+        res = client.post(REMOVE_BG_URL, json={"image": "aGVsbG8=", "region": REGION})
+
+    assert res.status_code == 502
+
+
 # --------------------------------------------------------------- find-objects
 
 def test_find_objects_returns_boxes_and_count():
@@ -163,9 +245,20 @@ def test_find_objects_sends_default_params():
         client.post(OBJECTS_URL, json={"image": "aGVsbG8="})
 
     assert post.call_args[1]["json"]["params"] == {
-        "center_degrees": 50, "tolerance_degrees": 20, "saturation_min": 60,
-        "value_min": 40, "kernel_size": 3, "minimum_area": 200,
+        "confidence_min": 0.6, "min_size": 20,
     }
+
+
+def test_find_objects_passes_through_confidence_when_present():
+    """[กรณีทดสอบ]: ใบหน้ามี confidence ติดมาด้วย -> ต้องส่งต่อให้หน้าเว็บ ไม่ทิ้ง"""
+    client = _client()
+    payload = {"objects": [
+        {"x": 5, "y": 6, "width": 70, "height": 80, "area": 5600.0, "confidence": 0.87},
+    ]}
+    with patch("app.services.ai_engine_client.requests.post", return_value=_ok(payload)):
+        res = client.post(OBJECTS_URL, json={"image": "aGVsbG8="})
+
+    assert res.get_json()["objects"][0]["confidence"] == pytest.approx(0.87)
 
 
 def test_find_objects_empty_list_is_200_not_404():
@@ -196,13 +289,11 @@ def test_find_objects_skips_malformed_entries_instead_of_failing():
 @pytest.mark.parametrize("body", [
     {},
     {"image": ""},
-    {"image": "aGVsbG8=", "center_degrees": 400},
-    {"image": "aGVsbG8=", "center_degrees": True},
-    {"image": "aGVsbG8=", "tolerance_degrees": 0},
-    {"image": "aGVsbG8=", "kernel_size": 4},        # เลขคู่
-    {"image": "aGVsbG8=", "kernel_size": 1},        # ต่ำกว่าที่ clean_mask() รับ (>=3)
-    {"image": "aGVsbG8=", "minimum_area": -1},
-    {"image": "aGVsbG8=", "saturation_min": 256},
+    {"image": "aGVsbG8=", "confidence_min": True},
+    {"image": "aGVsbG8=", "confidence_min": -0.01},
+    {"image": "aGVsbG8=", "confidence_min": 1.01},
+    {"image": "aGVsbG8=", "min_size": True},
+    {"image": "aGVsbG8=", "min_size": -1},
 ])
 def test_find_objects_rejects_bad_params_without_calling_ai_engine(body):
     client = _client()

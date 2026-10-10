@@ -35,10 +35,8 @@ endpoint ที่รองรับ (ตาม docs/API_CONTRACT.md)
 --------------------------------------------
     GET  /health                       ตรวจว่า mock ยังอยู่
     POST /forge/txt2img                -> {"images": [b64], "seed_used": n}
-    POST /forge/img2img                -> {"images": [b64], "seed_used": n}
     POST /pipeline/<stage>/<operation> -> {"image": b64, "metrics": {...}}
     POST /sdapi/v1/txt2img             alias ของ AUTOMATIC1111/Forge ตัวจริง
-    POST /sdapi/v1/img2img             alias
     GET  /sdapi/v1/samplers            รายชื่อ sampler ที่ Forge จริงมี
 
 exit code: Ctrl+C = 0
@@ -82,6 +80,8 @@ OPTS = argparse.Namespace(
 
 # sampler ที่ Forge จริงมี — ใช้ validate ว่า backend ส่งชื่อที่มีอยู่จริง
 # (Lecture 2 หน้า 8-10 อธิบายว่า sampler ต่างกันให้ผลต่างกันที่ step เท่ากัน)
+CHECKPOINTS = [{"title": "mock-portrait [aabbccd001]"}, {"title": "mock-landscape [aabbccd002]"}]
+
 SAMPLERS = [
     "Euler a", "Euler", "LMS", "Heun", "DPM2", "DPM2 a",
     "DPM++ 2S a", "DPM++ 2M", "DPM++ SDE", "DPM++ 2M SDE",
@@ -166,7 +166,7 @@ def bad_request(msg: str) -> tuple[int, dict]:
 
 
 def validate_common(body: dict) -> tuple[int, dict] | None:
-    """ตรวจ field ร่วมของ txt2img / img2img
+    """ตรวจ field ร่วมของ txt2img
 
     ตั้งใจให้เข้มกว่า Forge จริงนิดหนึ่ง เพื่อให้จับบั๊กฝั่ง backend ได้ตั้งแต่ dev
     เช่นบั๊ก isinstance(True, int) ที่เขียนเตือนไว้ใน docs/API_CONTRACT.md
@@ -213,6 +213,12 @@ def handle_txt2img(body: dict) -> tuple[int, dict]:
     err = validate_common(body)
     if err:
         return err
+    overrides = body.get("override_settings", {})
+    if not isinstance(overrides, dict):
+        return bad_request("override_settings must be an object")
+    checkpoint = overrides.get("sd_model_checkpoint", CHECKPOINTS[0]["title"])
+    if checkpoint not in [model["title"] for model in CHECKPOINTS]:
+        return bad_request("unknown checkpoint")
     seed = resolve_seed(body)
     w = int(body.get("width", 512))
     h = int(body.get("height", 512))
@@ -220,6 +226,7 @@ def handle_txt2img(body: dict) -> tuple[int, dict]:
         "images": [png_b64(w, h, seed)],
         "seed_used": seed,
         "parameters": {
+            "checkpoint": checkpoint,
             "prompt": body["prompt"],
             "negative_prompt": body.get("negative_prompt", ""),
             "steps": body.get("steps", 20),
@@ -228,79 +235,6 @@ def handle_txt2img(body: dict) -> tuple[int, dict]:
             "width": w, "height": h,
         },
         "info": "[mock] ไม่ใช่ภาพจาก Stable Diffusion จริง",
-    }
-
-
-def handle_img2img(body: dict) -> tuple[int, dict]:
-    """Handle LUMA's project endpoint, which uses singular init_image."""
-    init = body.get("init_image")
-    if not isinstance(init, str) or not init:
-        return bad_request("img2img ต้องมี init_image เป็น base64")
-    try:
-        base64.b64decode(init, validate=True)
-    except (binascii.Error, ValueError):
-        return bad_request("init_image ไม่ใช่ base64 ที่ถูกต้อง")
-
-    mode = body.get("mode", "text")
-    valid_modes = {"text", "sketch", "inpaint", "inpaint-sketch"}
-    if mode not in valid_modes:
-        return bad_request(f"mode ต้องเป็นหนึ่งใน {sorted(valid_modes)}")
-    if mode.startswith("inpaint") and not body.get("mask"):
-        # Forge จริงจะคืนภาพเดิมเฉยๆ ซึ่งดีบั๊กยาก mock บอกตรงๆ ดีกว่า
-        return bad_request(f"mode={mode} ต้องส่ง mask มาด้วย")
-
-    err = validate_common(body)
-    if err:
-        return err
-
-    seed = resolve_seed(body)
-    w = int(body.get("width", 512))
-    h = int(body.get("height", 512))
-    return 200, {
-        "images": [png_b64(w, h, seed)],
-        "seed_used": seed,
-        "denoising_strength": body.get("denoising_strength", 0.7),
-        "mode": mode,
-        "info": "[mock] img2img",
-    }
-
-
-def handle_forge_img2img(body: dict) -> tuple[int, dict]:
-    """Handle Forge's /sdapi/v1/img2img contract with init_images."""
-    init_images = body.get("init_images")
-    if (
-        not isinstance(init_images, list)
-        or not init_images
-        or any(not isinstance(image, str) or not image for image in init_images)
-    ):
-        return bad_request("Forge img2img ต้องมี init_images เป็นรายการ base64")
-    for image in init_images:
-        try:
-            base64.b64decode(image, validate=True)
-        except (binascii.Error, ValueError):
-            return bad_request("init_images มี base64 ที่ไม่ถูกต้อง")
-
-    mask = body.get("mask")
-    if mask is not None:
-        if not isinstance(mask, str) or not mask:
-            return bad_request("mask ต้องเป็น base64")
-        try:
-            base64.b64decode(mask, validate=True)
-        except (binascii.Error, ValueError):
-            return bad_request("mask ไม่ใช่ base64 ที่ถูกต้อง")
-
-    err = validate_common(body)
-    if err:
-        return err
-
-    seed = resolve_seed(body)
-    width = int(body.get("width", 512))
-    height = int(body.get("height", 512))
-    return 200, {
-        "images": [png_b64(width, height, seed)],
-        "seed_used": seed,
-        "denoising_strength": body.get("denoising_strength", 0.7),
-        "info": "[mock] Forge-compatible img2img",
     }
 
 
@@ -428,11 +362,13 @@ class MockForgeHandler(BaseHTTPRequestHandler):
             self.send_json(200, {
                 "status": "ok", "service": "mock-forge",
                 "warning": "นี่คือ Forge ปลอม ห้ามใช้ทำภาพส่งงาน",
-                "endpoints": ["/forge/txt2img", "/forge/img2img",
+                "endpoints": ["/forge/txt2img",
                               "/pipeline/<stage>/<operation>",
-                              "/sdapi/v1/txt2img", "/sdapi/v1/img2img",
+                              "/sdapi/v1/txt2img",
                               "/sdapi/v1/samplers"],
             })
+        elif path == "/sdapi/v1/sd-models":
+            self.send_json(200, CHECKPOINTS)
         elif path == "/sdapi/v1/samplers":
             self.send_json(200, [{"name": s, "aliases": []} for s in SAMPLERS])
         else:
@@ -456,10 +392,6 @@ class MockForgeHandler(BaseHTTPRequestHandler):
 
         if path in ("/forge/txt2img", "/sdapi/v1/txt2img"):
             status, payload = handle_txt2img(body)
-        elif path == "/forge/img2img":
-            status, payload = handle_img2img(body)
-        elif path == "/sdapi/v1/img2img":
-            status, payload = handle_forge_img2img(body)
         elif path.startswith("/pipeline/"):
             parts = path.strip("/").split("/")
             if len(parts) != 3:

@@ -33,7 +33,7 @@ function load(nodes, fetchImpl, extra = {}) {
 async function seed() {
   let sent;
   const form = el();
-  const values = { prompt: "cat", negative_prompt: "", steps: "20", cfg_scale: "8", sampler_name: "Euler a", seed: "0", width: "512", height: "512" };
+  const values = { prompt: "cat", negative_prompt: "", steps: "20", cfg_scale: "8", sampler_name: "Euler a", checkpoint: "landscape [222]", seed: "0", width: "512", height: "512" };
   for (const [k, v] of Object.entries(values)) form[k] = { value: v };
   const nodes = { "generate-form": form };
   for (const id of ["generate-submit", "generate-error", "generate-spinner", "preview-container", "preview-image",
@@ -43,7 +43,7 @@ async function seed() {
     return { ok: true, status: 200, json: async () => ({ image_url: "/api/assets/1/image", asset_id: 1 }) };
   });
   await form.fire("submit", { preventDefault() {}, stopPropagation() {} });
-  return { seed: sent.seed };
+  return { seed: sent.seed, checkpoint: sent.checkpoint };
 }
 
 // #173 — ช่อง seed ต้องรีเซ็ตค่าที่ใช้ไม่ได้กลับเป็น -1 ตอนออกจากช่อง

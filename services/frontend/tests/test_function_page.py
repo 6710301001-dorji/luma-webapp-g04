@@ -73,20 +73,19 @@ def test_blur_sends_region_size_and_csrf_then_shows_result():
 
 
 def test_find_objects_sends_params_and_draws_boxes():
-    """[กรณีทดสอบ]: กดหาวัตถุ -> ส่งค่าจากฟอร์ม และวาดกรอบตามพิกัดที่ได้กลับมา"""
+    """[กรณีทดสอบ]: กดหาใบหน้า -> ส่งค่าจากฟอร์ม และวาดกรอบตามพิกัดที่ได้กลับมา"""
     result = _run("objects_request")
     assert result["url"].endswith("/api/pipeline/find-objects")
-    assert result["body"]["center_degrees"] == 120
-    assert result["body"]["tolerance_degrees"] == 30
-    assert result["body"]["minimum_area"] == 500
+    assert result["body"]["confidence_min"] == 0.75
+    assert result["body"]["min_size"] == 40
     assert "1" in result["result"]
     assert {"x": 1, "y": 2, "width": 3, "height": 4} in result["strokes"]
 
 
 def test_no_objects_found_tells_the_user_what_to_do():
-    """[กรณีทดสอบ]: ไม่เจอวัตถุไม่ใช่ error — ต้องบอกผู้ใช้และปุ่มกลับมากดได้"""
+    """[กรณีทดสอบ]: ไม่เจอใบหน้าไม่ใช่ error — ต้องบอกผู้ใช้และปุ่มกลับมากดได้"""
     result = _run("objects_empty")
-    assert "ไม่พบวัตถุ" in result["result"]
+    assert "ไม่พบใบหน้า" in result["result"]
     assert result["hidden"] is False
     assert result["buttonDisabled"] is False
 
@@ -120,7 +119,11 @@ def test_choosing_a_function_opens_the_image_step_with_only_that_tool():
 
     s = _run("after_choose_objects")
     assert s["toolObjects"] is True and s["toolBlur"] is False
-    assert s["chosenName"] == "ตีกรอบวัตถุ"
+    assert s["chosenName"] == "จับหน้า"
+
+    s = _run("after_choose_removebg")
+    assert s["toolRemoveBg"] is True and s["toolBlur"] is False and s["toolObjects"] is False
+    assert s["chosenName"] == "ลบพื้นหลัง"
 
 
 def test_picking_an_image_opens_the_work_step():
@@ -144,7 +147,7 @@ def test_change_function_goes_back_to_step_one_and_clears_everything():
     assert s["resetDisabled"] is True
     assert "ยังไม่ได้เลือกภาพ" in s["hint"]
     # เครื่องมือกับชื่อฟังก์ชันต้องถูกล้างด้วย ไม่ใช่แค่ซ่อนขั้นที่ครอบมันอยู่
-    assert s["toolBlur"] is False and s["toolObjects"] is False
+    assert s["toolBlur"] is False and s["toolObjects"] is False and s["toolRemoveBg"] is False
     assert s["chosenName"] == ""
 
 
@@ -152,7 +155,7 @@ def test_change_image_keeps_the_same_function():
     """[กรณีทดสอบ]: กดเปลี่ยนภาพต้องถอยแค่ขั้นที่ 2 ไม่ต้องเลือกฟังก์ชันใหม่"""
     s = _run("change_image")
     assert s["step2"] is True and s["step1"] is False
-    assert s["chosenName"] == "ตีกรอบวัตถุ"
+    assert s["chosenName"] == "จับหน้า"
     assert s["toolObjects"] is True
 
 
@@ -175,3 +178,77 @@ def test_find_objects_also_sends_the_clean_image():
     """[กรณีทดสอบ]: กดหาวัตถุซ้ำ กรอบเขียวรอบก่อนต้องไม่ติดไปกับภาพที่ส่ง"""
     result = _run("objects_request")
     assert result["sentImage"] == "data:image/png;base64,Q0xFQU4="
+
+
+# --------------------------------------------------------- ลบพื้นหลัง (ลากกรอบแล้วกดลบ)
+
+def test_removebg_drag_updates_only_its_own_selection_not_blurs():
+    """[กรณีทดสอบ]: ลากกรอบตอนเลือกฟังก์ชันลบพื้นหลัง -> อัปเดตแค่ปุ่ม/ข้อความของ removebg
+
+    เบลอกับลบพื้นหลังใช้กรอบลากเลือกตัวเดียวกัน (selection) แต่แยกคนละการ์ดเครื่องมือ
+    ปุ่ม/ข้อความของอีกฝั่งต้องไม่ถูกแตะเลย
+    """
+    result = _run("removebg_drag")
+    assert "100 x 50" in result["removebgSelectionText"]
+    assert result["removebgDisabled"] is False
+    assert result["blurSelectionText"] == "ยังไม่ได้เลือกกรอบ"
+    assert result["blurDisabled"] is True
+
+
+def test_removebg_preview_draws_an_ellipse_not_a_rectangle():
+    """[กรณีทดสอบ]: พรีวิวระหว่างลากต้องเป็นวงรี/วงกลม ไม่ใช่กรอบสี่เหลี่ยม (ตามที่ผู้ใช้ขอ)
+
+    ต้องตรงกับที่ ai-engine จะลบจริง — ถ้าพรีวิวยังเป็นสี่เหลี่ยมแต่ลบจริงเป็นวงกลม
+    ผู้ใช้จะงงว่าทำไมขอบเขตที่เห็นไม่ตรงกับผลลัพธ์
+    """
+    result = _run("removebg_drag")
+    assert result["ellipseCount"] > 0
+    assert result["rectStrokeCount"] == 0
+    # กรอบลาก {x:100,y:50,width:100,height:50} -> วงรีศูนย์กลาง (150,75) รัศมี (50,25)
+    assert result["ellipse"] == {"x": 150, "y": 75, "radiusX": 50, "radiusY": 25}
+
+
+def test_blur_preview_still_draws_a_rectangle_not_an_ellipse():
+    """[กรณีทดสอบ]: เบลอต้องพรีวิวเป็นสี่เหลี่ยมเหมือนเดิม — เปลี่ยนแค่ removebg ไม่ใช่ทุกฟังก์ชัน"""
+    result = _run("blur_drag_still_draws_a_rectangle")
+    assert result["rectStrokeCount"] > 0
+    assert result["ellipseCount"] == 0
+
+
+def test_removebg_sends_region_and_csrf_then_shows_result():
+    """[กรณีทดสอบ]: กดลบพื้นหลัง -> ยิง /api/pipeline/remove-background พร้อมกรอบที่แปลงพิกัดแล้ว"""
+    result = _run("removebg_request")
+    assert result["url"].endswith("/api/pipeline/remove-background")
+    assert result["region"] == {"x": 200, "y": 100, "width": 200, "height": 100}
+    assert result["hasCsrf"] is True
+    assert result["lastLoaded"] == "data:image/png;base64,RVJBU0VE"
+    assert result["sentImage"] == "data:image/png;base64,Q0xFQU4="   # ภาพสะอาด เหมือน blur (#176)
+
+
+def test_removebg_server_error_is_shown_and_button_recovers():
+    """[กรณีทดสอบ]: server ตอบ 400 -> แสดงข้อความจริงของ server ปุ่มกลับมากดได้"""
+    result = _run("removebg_server_error")
+    assert "region must stay within the image bounds" in result["error"]
+    assert result["errorHidden"] is False
+    assert result["buttonDisabled"] is False
+
+
+# --------------------------------------------------- response เก่าล้าสมัยไม่ทับ DOM ปัจจุบัน (#207)
+
+def test_stale_blur_response_does_not_pull_the_screen_back_to_step_three():
+    """[กรณีทดสอบ]: กดเบลอ -> ผู้ใช้กดเปลี่ยนฟังก์ชันก่อน response กลับมา -> response เก่าต้องไม่มีผล
+
+    บั๊กเดิม: loadImage() ของ response เก่าสั่ง stepWork.hidden = false ดึงหน้าจอ
+    กลับไปขั้นที่ 3 ทับสถานะ "กลับไปขั้นที่ 1" ที่ผู้ใช้เพิ่งกดไป (รีวิว #207)
+    """
+    result = _run("stale_blur_response_does_not_override_reset")
+    assert result["step1Visible"] is True
+    assert result["step3Visible"] is False
+    assert result["hint"] == "ยังไม่ได้เลือกภาพ"
+    assert result["lastLoaded"] != "data:image/png;base64,U1RBTEU="
+
+
+def test_stale_removebg_response_does_not_override_a_newly_picked_image():
+    """[กรณีทดสอบ]: กดลบพื้นหลัง -> ผู้ใช้เลือกไฟล์ใหม่ก่อน response กลับมา -> ต้องไม่ทับไฟล์ใหม่"""
+    result = _run("stale_removebg_response_does_not_override_new_image")
+    assert result["lastLoaded"] != "data:image/png;base64,U1RBTEU="

@@ -7,9 +7,11 @@ const [scenario, scriptPath] = process.argv.slice(2);
 function el() {
   const h = {};
   return {
-    textContent: "", value: "", disabled: false, src: "", style: {}, attrs: {}, classList: { add() {}, remove() {} },
+    textContent: "", value: "", disabled: false, src: "", href: "", download: "",
+    style: {}, attrs: {}, classList: { add() {}, remove() {} },
     setAttribute(k, v) { this.attrs[k] = v; }, removeAttribute(k) { delete this.attrs[k]; },
     appendChild() {}, addEventListener(t, f) { h[t] = f; }, fire(t, e) { return h[t](e); },
+    click() { this.clicked = true; },
   };
 }
 
@@ -18,13 +20,15 @@ for (const [k, v] of Object.entries({ prompt: "a fox", negative_prompt: "", step
   sampler_name: "Euler a", seed: "-1", width: "512", height: "512" })) form[k] = { value: v };
 const n = { "generate-form": form };
 for (const id of ["generate-submit", "generate-error", "generate-spinner", "preview-container", "preview-image",
-  "preview-placeholder", "preview-meta", "meta-asset-id", "meta-prompt", "meta-info"]) n[id] = el();
+  "preview-placeholder", "preview-meta", "meta-asset-id", "meta-prompt", "meta-info", "download-btn"]) n[id] = el();
 n["generate-error"].attrs.hidden = "";
 
 const polls = { done: ["pending", "running", "done"], no_seed: ["pending", "running", "done"],
-  failed: ["pending", "running", "failed"] }[scenario] || [];
+  failed: ["pending", "running", "failed"], download: ["pending", "running", "done"],
+  download_fail: ["pending", "running", "done"] }[scenario] || [];
 const calls = [];
 const spinnerTexts = [];
+const createdAnchors = [];
 const reply = (status, body) => ({ ok: status < 400, status, json: async () => body });
 const fetch = async (url, opts = {}) => {
   calls.push(`${opts.method || "GET"} ${url}`);
@@ -32,6 +36,11 @@ const fetch = async (url, opts = {}) => {
     return scenario === "rejected"
       ? reply(400, { error: "steps ต้องอยู่ระหว่าง 1-50" })
       : reply(202, { status: "queued", job_id: 12 });
+  }
+  // ดาวน์โหลดภาพ (#57) — handleDownload() ยิง fetch(currentImageUrl) ตรงๆ ไม่มี method
+  if (!opts.method && url === "/api/assets/30/image") {
+    if (scenario === "download_fail") return { ok: false, status: 502, json: async () => ({}) };
+    return { ok: true, status: 200, blob: async () => ({ mock: "blob" }) };
   }
   const status = polls.shift();
   spinnerTexts.push(n["generate-spinner"].textContent);
@@ -47,7 +56,18 @@ const fetch = async (url, opts = {}) => {
 const ctx = {
   window: { csrfHeaders: () => ({ "X-CSRFToken": "tok" }) }, console: { error() {} }, fetch,
   setTimeout: (fn) => fn(), // poll ทันที ไม่ต้องรอ 1.5 วินาทีจริง
-  document: { readyState: "complete", getElementById: (id) => n[id] || null, createElement: el, addEventListener() {} },
+  URL: {
+    createObjectURL: () => "blob:mock-url",
+    revokeObjectURL() {},
+  },
+  document: {
+    readyState: "complete", getElementById: (id) => n[id] || null, addEventListener() {},
+    createElement: (tag) => {
+      const node = el();
+      if (tag === "a") createdAnchors.push(node);
+      return node;
+    },
+  },
 };
 vm.createContext(ctx);
 vm.runInContext(fs.readFileSync(scriptPath, "utf8"), ctx);
@@ -55,6 +75,11 @@ vm.runInContext(fs.readFileSync(scriptPath, "utf8"), ctx);
 (async () => {
   await form.fire("submit", { preventDefault() {}, stopPropagation() {} });
   spinnerTexts.push(n["generate-spinner"].textContent);
+
+  if (scenario === "download" || scenario === "download_fail") {
+    await n["download-btn"].fire("click");
+  }
+
   console.log(JSON.stringify({
     calls,
     spinner_texts: spinnerTexts,
@@ -64,5 +89,8 @@ vm.runInContext(fs.readFileSync(scriptPath, "utf8"), ctx);
     seed_in_form: form.seed.value,
     error: "hidden" in n["generate-error"].attrs ? null : n["generate-error"].textContent,
     button_disabled: n["generate-submit"].disabled,
+    download_clicked: createdAnchors.some((a) => a.clicked),
+    download_filename: createdAnchors.length ? createdAnchors[createdAnchors.length - 1].download : null,
+    download_btn_disabled_after: n["download-btn"].disabled,
   }));
 })();

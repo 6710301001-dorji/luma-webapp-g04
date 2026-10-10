@@ -637,3 +637,20 @@ def test_backup_restore_with_separated_uploads_directory(db_file, tmp_path, monk
     assert img.read_bytes() == b"image-in-separate-folder"
 
 
+def test_restore_without_uploads_dir_never_writes_into_project_uploads(db_file, tmp_path, monkeypatch):
+    """[กรณีทดสอบ #207 ST5 รีวิว]: restore .db ที่ไม่มี uploads/ ข้างๆ และไม่ได้ระบุ uploads_dir
+    ภาพต้องไปอยู่ข้าง .db นั้น ไม่ใช่ไปโผล่ใน services/backend/instance/uploads ของโปรเจกต์จริง
+    (เวอร์ชันแรกของ #208 ถาม instance_path ของแอปในกรณีนี้ แล้วเขียนภาพทดสอบลงโปรเจกต์จริง)"""
+    monkeypatch.delenv("LUMA_UPLOADS_DIR", raising=False)
+    image = db_file.parent / "uploads" / "generated" / "probe.png"
+    image.parent.mkdir(parents=True, exist_ok=True)
+    image.write_bytes(b"probe")
+    saved = backup(db_file, tmp_path / "backups")
+
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    restore(saved, elsewhere / "luma.db")
+
+    assert (elsewhere / "uploads" / "generated" / "probe.png").read_bytes() == b"probe"
+    project_uploads = DATABASE_DIR.parent / "backend" / "instance" / "uploads"
+    assert not (project_uploads / "generated" / "probe.png").exists()

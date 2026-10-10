@@ -60,3 +60,10 @@ backend/
 - HTTP status code: Lecture 4 หน้า 89–90
 - Flask + SQLite CRUD: **Lecture 7 หน้า 99–108**
 - Front-End vs Back-End developer: Lecture 4 หน้า 61–62
+
+## Checkpoint selection (#205)
+
+Authenticated `GET /api/checkpoints` proxies the ai-engine catalogue.
+`POST /api/generate` accepts an optional `checkpoint` title and persists it in
+job params for the worker. Existing jobs without this field keep the default.
+This records the requested model, not independent proof of the loaded model.

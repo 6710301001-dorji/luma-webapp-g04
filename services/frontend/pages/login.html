@@ -30,14 +30,28 @@
 
       <div class="auth-field">
         <label class="auth-field__label" for="password">รหัสผ่าน</label>
-        <input
-          class="auth-field__input"
-          type="password"
-          id="password"
-          name="password"
-          autocomplete="current-password"
-          required
-        />
+        <div class="auth-field__input-wrap">
+          <input
+            class="auth-field__input"
+            type="password"
+            id="password"
+            name="password"
+            autocomplete="current-password"
+            required
+          />
+          <button type="button" class="auth-field__toggle" aria-label="แสดงรหัสผ่าน" aria-pressed="false">
+            <svg class="auth-field__eye" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+            <svg class="auth-field__eye-off" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden>
+              <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 7 11 7a13.16 13.16 0 0 1-1.67 2.68" />
+              <path d="M6.61 6.61A13.526 13.526 0 0 0 1 11s4 7 11 7a9.26 9.26 0 0 0 5.39-1.61" />
+              <path d="M14.12 14.12a3 3 0 1 1-4.24-4.24" />
+              <line x1="1" y1="1" x2="23" y2="23" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       <button class="auth-submit" type="submit" id="login-submit">เข้าสู่ระบบ</button>
@@ -49,6 +63,7 @@
   </div>
 
   <script src="../js/csrf.js"></script>
+  <script src="../js/password-toggle.js"></script>
   <script src="../js/login.js"></script>
 </body>
 </html>

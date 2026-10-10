@@ -65,18 +65,28 @@
   }
 
   async function handleLogout() {
+    // ต้องเช็ค res.ok ก่อน redirect (#207) — เดิม finally{} เคลียร์/redirect เสมอ
+    // แม้ server ตอบ 400 (เช่น CSRF token หลุด) ทำให้หน้าเว็บดูเหมือนออกจากระบบ
+    // สำเร็จ ทั้งที่ session บน server ยังค้างอยู่จริง
+    let res;
     try {
-      await fetch(`${API_BASE}/api/auth/logout`, {
+      res = await fetch(`${API_BASE}/api/auth/logout`, {
         method: "POST",
         headers: { ...window.csrfHeaders() },
         credentials: "include",
       });
     } catch (err) {
       console.error("Logout error:", err);
-    } finally {
-      localStorage.removeItem("luma_user_email");
-      window.location.href = "login.html";
+      alert("ออกจากระบบไม่สำเร็จ ตรวจการเชื่อมต่อแล้วลองใหม่");
+      return;
     }
+    if (!res.ok) {
+      console.error("Logout error: HTTP", res.status);
+      alert("ออกจากระบบไม่สำเร็จ ลองรีเฟรชหน้าแล้วลองใหม่");
+      return;
+    }
+    localStorage.removeItem("luma_user_email");
+    window.location.href = "login.html";
   }
 
   function markCurrentPage() {

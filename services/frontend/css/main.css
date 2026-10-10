@@ -44,6 +44,16 @@ a {
   z-index: 10;
 }
 
+/* layout.js ใส่ HTML ของ nav.html (brand + toggle + .app-nav) ลงใน div นี้
+   ถ้าไม่มี display:contents ตัว div เปล่านี้จะกลายเป็น flex item ตัวเดียวของ
+   .app-header เอง (นับเป็น 1 ชิ้น ไม่ใช่ 3) ทำให้ justify-content: space-between
+   ด้านบนไม่มีผลอะไรเลย แล้ว .app-nav (เป็น block-level flex ของตัวเอง) ก็ตกลง
+   ไปอยู่บรรทัดใหม่ใต้โลโก้แทนที่จะเรียงชิดขวาบนบรรทัดเดียวกัน — เจอจริงตอนนี้
+   ทำให้ชื่อผู้ใช้/ออกจากระบบลอยอยู่กลางจอแทนที่จะชิดขวา */
+#app-nav-slot {
+  display: contents;
+}
+
 .app-header__brand {
   display: inline-flex;
   align-items: center;
@@ -65,6 +75,14 @@ a {
 .app-nav {
   display: flex;
   gap: 0.5rem;
+  align-items: center;
+}
+
+/* ดันกลุ่มบัญชีผู้ใช้ (ชื่อ + ออกจากระบบ) ให้ชิดขวาสุด แยกจากลิงก์เมนูหลัก
+   ด้วยช่องว่างที่มองเห็นได้ ไม่ใช่แค่เรียงต่อท้ายด้วย gap เท่าลิงก์อื่น */
+#nav-user-slot {
+  margin-left: auto;
+  display: flex;
   align-items: center;
 }
 

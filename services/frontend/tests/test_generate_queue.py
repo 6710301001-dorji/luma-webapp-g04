@@ -83,3 +83,26 @@ def test_detail_line_says_unknown_when_forge_did_not_report_a_seed():
     assert "undefined" not in result["meta_info"]
     assert "Seed: -1" not in result["meta_info"]
     assert "ไม่ทราบ" in result["meta_info"]
+
+
+# --------------------------------------------- ปุ่มดาวน์โหลดภาพผลลัพธ์
+
+def test_download_button_fetches_the_image_as_blob_and_clicks_a_temporary_link():
+    """[กรณีทดสอบ]: กดดาวน์โหลด -> โหลด imageUrl เป็น blob แล้วสร้างลิงก์ชั่วคราวมากดเอง
+
+    ต้องผ่าน fetch (ไม่ใช่ <a href> ตรงๆ) เพราะ /api/assets/<id>/image ต้อง login
+    ด้วย session cookie และ apiBase อาจเป็นคนละ origin ในอนาคต (#57)
+    """
+    r = _run("download")
+    assert "GET /api/assets/30/image" in r["calls"]
+    assert r["download_clicked"] is True
+    assert r["download_filename"] == "luma-30.png"
+    assert r["download_btn_disabled_after"] is False
+
+
+def test_download_failure_shows_error_and_button_recovers():
+    """[กรณีทดสอบ]: โหลดภาพไม่สำเร็จ -> แสดงข้อความ error และปุ่มต้องกลับมากดได้ ไม่ค้าง"""
+    r = _run("download_fail")
+    assert r["download_clicked"] is False
+    assert "502" in r["error"]
+    assert r["download_btn_disabled_after"] is False

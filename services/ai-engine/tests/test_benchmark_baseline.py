@@ -89,8 +89,8 @@ class _EndpointSession:
     def post(self, url, json, headers, timeout):
         assert headers == {"X-CSRFToken": "benchmark-token"}
         assert timeout == 10
-        if url.endswith("/api/img2img"):
-            return _EndpointResponse({"status": "success", "asset_id": 1})
+        if url.endswith("/api/pipeline/remove-background"):
+            return _EndpointResponse({"image": "aW1hZ2U="})
         if url.endswith("/api/pipeline/blur-region"):
             return _EndpointResponse({"image": "aW1hZ2U="})
         if url.endswith("/api/pipeline/find-objects"):

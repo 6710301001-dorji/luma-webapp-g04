@@ -178,3 +178,62 @@ def test_unreachable_forge_is_bad_gateway(monkeypatch):
         "/forge/txt2img", json={"prompt": "a tree"}
     )
     assert response.status_code == 502
+
+
+@pytest.mark.parametrize("checkpoint", [True, 123, None, [], "", " ", "x" * 513])
+def test_checkpoint_validation(checkpoint):
+    response = create_app({"TESTING": True}).test_client().post(
+        "/forge/txt2img", json={"prompt": "cat", "checkpoint": checkpoint})
+    assert response.status_code == 400
+
+
+def test_checkpoint_catalogue_and_selected_model_reach_forge(monkeypatch):
+    from forge.client import generate_image, list_checkpoints, ForgeError
+    sent = []
+
+    class Response:
+        def __init__(self, data):
+            self.data = data
+        def raise_for_status(self):
+            pass
+        def json(self):
+            return self.data
+
+    monkeypatch.setattr(requests, "get", lambda url, timeout: Response([
+        {"title": "portrait [111]", "filename": "/private/model"},
+        {"title": "landscape [222]"}]))
+    def post(url, json, timeout):
+        sent.append(json)
+        return Response({"images": [VALID_PNG], "seed_used": 42})
+    monkeypatch.setattr(requests, "post", post)
+    assert list_checkpoints("http://forge") == [{"title": "portrait [111]"}, {"title": "landscape [222]"}]
+    client = create_app({"TESTING": True, "FORGE_URL": "http://forge"}).test_client()
+    assert client.get("/forge/checkpoints").json["items"][1]["title"] == "landscape [222]"
+    response = client.post("/forge/txt2img", json={"prompt": "cat", "checkpoint": "landscape [222]"})
+    assert response.status_code == 200
+    assert sent[0]["override_settings"] == {"sd_model_checkpoint": "landscape [222]"}
+    assert sent[0]["override_settings_restore_afterwards"] is True
+    assert "checkpoint" not in sent[0]
+    with pytest.raises(ForgeError, match="no longer available"):
+        generate_image({"prompt": "cat", "seed": 42, "checkpoint": "missing"}, "http://forge")
+    assert len(sent) == 1  # Never silently generate with the wrong model.
+
+
+@pytest.mark.parametrize("data", [{}, [None], [{"title": 5}], [{"title": ""}]])
+def test_checkpoint_catalogue_rejects_malformed_response(monkeypatch, data):
+    class Response:
+        def raise_for_status(self):
+            pass
+        def json(self):
+            return data
+    monkeypatch.setattr(requests, "get", lambda *a, **kw: Response())
+    client = create_app({"TESTING": True, "FORGE_URL": "http://forge"}).test_client()
+    assert client.get("/forge/checkpoints").status_code == 502
+
+
+def test_checkpoint_catalogue_timeout(monkeypatch):
+    def timeout(*a, **kw):
+        raise requests.Timeout()
+    monkeypatch.setattr(requests, "get", timeout)
+    client = create_app({"TESTING": True, "FORGE_URL": "http://forge"}).test_client()
+    assert client.get("/forge/checkpoints").status_code == 504

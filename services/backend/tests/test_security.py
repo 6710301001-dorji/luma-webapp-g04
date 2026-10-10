@@ -184,8 +184,8 @@ def _csrf_client():
 def test_post_without_csrf_token_is_rejected_as_json():
     """[กรณีทดสอบ]: POST ที่ไม่มี CSRF token ต้องได้ 400 JSON ทุก endpoint ที่เปลี่ยนสถานะ"""
     client = _csrf_client()
-    for path, body in (("/api/auth/register", _NEW_USER), ("/api/auth/logout", {}), ("/api/generate", {"prompt": "cat"}),
-                       ("/api/img2img", {"prompt": "cat", "init_image": "aGk="})):
+    for path, body in (("/api/auth/register", _NEW_USER), ("/api/auth/logout", {}),
+                       ("/api/generate", {"prompt": "cat"})):
         res = client.post(path, json=body)
         assert res.status_code == 400, f"{path} ควรได้ 400 แต่ได้ {res.status_code}"
         assert "error" in res.get_json(), path
@@ -284,12 +284,3 @@ def test_oversized_request_returns_json_not_html():
     assert "32" in res.get_json()["error"]
 
 
-def test_limit_is_above_what_inpaint_actually_sends():
-    """[กรณีทดสอบ]: เพดานต้องสูงกว่าที่ inpaint ส่งจริง ไม่งั้นปฏิเสธคำขอที่ถูกต้อง
-
-    inpaint ส่งสองภาพ ภาพละไม่เกิน 10 MB (IMG2IMG_MAX_BYTES) เป็น base64 ซึ่งโตขึ้น ~33%
-    -> ~28 MB · config.py.example เคยตั้ง 16 MB ซึ่งต่ำกว่านี้
-    """
-    app = create_app({"TESTING": True, "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:"})
-    inpaint_worst_case = 10 * 1024 * 1024 * 2 * 4 // 3
-    assert app.config["MAX_CONTENT_LENGTH"] > inpaint_worst_case

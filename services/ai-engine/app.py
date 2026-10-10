@@ -4,29 +4,14 @@ import os
 import base64
 import binascii
 import math
-from io import BytesIO
 from importlib import import_module
 
 import cv2
 import numpy as np
 import requests
 from flask import Flask, jsonify, request
-from PIL import Image
 
-from forge.client import ForgeError, edit_image, generate_image
-
-
-def _image_size(image_b64):
-    """Verify plain base64 image data and return its dimensions."""
-    if not isinstance(image_b64, str) or not image_b64:
-        raise ValueError("image must be a nonempty base64 string")
-    try:
-        image_bytes = base64.b64decode(image_b64, validate=True)
-        with Image.open(BytesIO(image_bytes)) as image:
-            image.verify()
-            return image.size
-    except (binascii.Error, ValueError, OSError, Image.DecompressionBombError) as exc:
-        raise ValueError("image must contain valid base64 image data") from exc
+from forge.client import ForgeError, generate_image, list_checkpoints
 
 
 LEGACY_KARRAS_SAMPLERS = {
@@ -158,6 +143,11 @@ def create_app(config=None):
 
     @app.post("/pipeline/03_segmentation/contours")
     def find_contours():
+        # Route/operation name kept as "contours" on purpose — 05_evaluation's
+        # benchmark_baseline.py already measures this exact URL with generic
+        # defaults and only checks the objects/count shape, not the algorithm.
+        # Renaming would touch already-shipped, hash-pinned benchmark evidence
+        # for no real benefit. Was HSV color segmentation; now face detection.
         data = request.get_json(silent=True)
         if not isinstance(data, dict):
             return jsonify({"error": "Expected a JSON object"}), 400
@@ -169,40 +159,25 @@ def create_app(config=None):
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 
-        center = params.get("center_degrees", 50)
-        tolerance = params.get("tolerance_degrees", 20)
-        saturation = params.get("saturation_min", 60)
-        value = params.get("value_min", 40)
-        kernel = params.get("kernel_size", 3)
-        minimum_area = params.get("minimum_area", 200)
+        confidence_min = params.get("confidence_min", 0.6)
+        min_size = params.get("min_size", 20)
 
-        for name, number, low, high in (
-            ("center_degrees", center, 0, 360),
-            ("tolerance_degrees", tolerance, 0, 180),
-        ):
-            if (isinstance(number, bool) or not isinstance(number, (int, float))
-                    or not math.isfinite(number) or number < low
-                    or (number >= high if name == "center_degrees" else number > high)):
-                return jsonify({"error": f"{name} is out of range"}), 400
-        for name, number in (("saturation_min", saturation), ("value_min", value)):
-            if isinstance(number, bool) or not isinstance(number, int) or not 0 <= number <= 255:
-                return jsonify({"error": f"{name} must be an integer from 0 to 255"}), 400
-        if (isinstance(kernel, bool) or not isinstance(kernel, int)
-                or not 3 <= kernel <= 31 or kernel % 2 == 0):
-            return jsonify({"error": "kernel_size must be an odd integer from 3 to 31"}), 400
-        if (isinstance(minimum_area, bool)
-                or not isinstance(minimum_area, (int, float))
-                or not math.isfinite(minimum_area) or minimum_area < 0):
-            return jsonify({"error": "minimum_area must be a finite nonnegative number"}), 400
+        if (isinstance(confidence_min, bool)
+                or not isinstance(confidence_min, (int, float))
+                or not math.isfinite(confidence_min) or not 0 <= confidence_min <= 1):
+            return jsonify({"error": "confidence_min must be a number from 0 to 1"}), 400
+        if isinstance(min_size, bool) or not isinstance(min_size, int) or min_size < 0:
+            return jsonify({"error": "min_size must be a nonnegative integer"}), 400
 
         try:
-            mask = segmentation.selective_color_mask(
-                pixels, center, tolerance, saturation, value
+            detected = segmentation.find_faces(
+                pixels, confidence_min=confidence_min, min_size=min_size
             )
-            mask = segmentation.clean_mask(mask, kernel_size=kernel)
-            detected = segmentation.find_objects(mask, minimum_area=minimum_area)
         except (ValueError, cv2.error) as exc:
             return jsonify({"error": str(exc)}), 400
+        except RuntimeError as exc:
+            # model file missing from disk — an ops/setup problem, not a bad request
+            return jsonify({"error": str(exc)}), 503
 
         objects = []
         for item in detected:
@@ -213,12 +188,100 @@ def create_app(config=None):
                 "width": int(box["width"]),
                 "height": int(box["height"]),
                 "area": float(item["area"]),
+                "confidence": item["confidence"],
             })
         return jsonify({
             "objects": objects,
             "metrics": {"object_count": len(objects)},
             "stage": "03_segmentation",
             "operation": "contours",
+        })
+
+    @app.post("/pipeline/03_segmentation/remove-background")
+    def remove_background_route():
+        # Function page "ลบพื้นหลัง" — ลากกรอบเหมือน blur เพื่อกำหนดขอบเขต แต่บริเวณที่
+        # ถูกลบจริงเป็นวงรี/วงกลมที่แนบในกรอบนั้น (ไม่ใช่ทั้งกรอบสี่เหลี่ยม) ตามที่ผู้ใช้
+        # ขอ — ใช้ cv2.ellipse วาด mask แทนการเติมทั้งกรอบ ใช้
+        # segmentation.remove_background(image, mask) ตรงๆ ซึ่งมีอยู่แล้วในไพพ์ไลน์
+        # แต่ไม่เคยมี route ผูกให้เรียกผ่าน HTTP มาก่อน (ดู docs/API_CONTRACT.md
+        # ตาราง "ยังไม่มี route") — mask ที่นี่สร้างจากกรอบสี่เหลี่ยมที่ลาก ไม่ใช่จาก
+        # การเลือกสีแบบ selective_color_mask
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({"error": "Expected a JSON object"}), 400
+        params = data.get("params", {})
+        if not isinstance(params, dict):
+            return jsonify({"error": "params must be a JSON object"}), 400
+
+        # ใช้ decode เฉพาะของ route นี้แทน _decode_bgr_image() ที่ใช้ร่วมกับ route อื่น
+        # เพราะต้องอ่าน alpha channel ไว้ด้วย (ดูเหตุผลเรื่อง existing_alpha ด้านล่าง)
+        # — _decode_bgr_image() ใช้ cv2.IMREAD_COLOR ซึ่งตัด alpha ทิ้งเสมอ ใช้ร่วมไม่ได้
+        image_b64 = data.get("image")
+        if not isinstance(image_b64, str) or not image_b64:
+            return jsonify({"error": "image must be a nonempty base64 string"}), 400
+        try:
+            image_bytes = base64.b64decode(image_b64, validate=True)
+        except (ValueError, binascii.Error):
+            return jsonify({"error": "image must be valid base64"}), 400
+        try:
+            raw = cv2.imdecode(np.frombuffer(image_bytes, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+        except cv2.error:
+            raw = None
+        if raw is None:
+            return jsonify({"error": "image must contain a supported image"}), 400
+
+        # ภาพที่เคยลบพื้นหลังมาแล้วรอบก่อน (กดลบซ้ำบนผลลัพธ์เดิม) มี alpha channel
+        # ติดมาด้วย — ต้องแยกเก็บไว้ก่อนตัดเหลือ BGR 3 ช่องให้ remove_background() ใช้
+        if raw.ndim == 3 and raw.shape[2] == 4:
+            pixels = raw[:, :, :3]
+            existing_alpha = raw[:, :, 3]
+        else:
+            pixels = raw
+            existing_alpha = None
+
+        region = params.get("region")
+        required = ("x", "y", "width", "height")
+        if not isinstance(region, dict) or any(name not in region for name in required):
+            return jsonify({"error": "region must contain x, y, width, and height"}), 400
+        if any(isinstance(region[name], bool) or not isinstance(region[name], int)
+               for name in required):
+            return jsonify({"error": "region values must be integers"}), 400
+
+        x, y = region["x"], region["y"]
+        width, height = region["width"], region["height"]
+        if x < 0 or y < 0 or width < 1 or height < 1:
+            return jsonify({"error": "region coordinates and size are out of range"}), 400
+        image_height, image_width = pixels.shape[:2]
+        if x + width > image_width or y + height > image_height:
+            return jsonify({"error": "region must stay within the image bounds"}), 400
+
+        mask = np.full((image_height, image_width), 255, dtype=np.uint8)
+        center = (x + width // 2, y + height // 2)
+        axes = (max(width // 2, 1), max(height // 2, 1))
+        cv2.ellipse(mask, center, axes, 0, 0, 360, 0, thickness=-1)
+        # axes ปัดขึ้นขั้นต่ำ 1 พิกเซลเสมอ (เผื่อกรอบแคบกว่า 2px) ทำให้กรอบเล็กมาก
+        # เช่น 1x1 อาจลบล้นออกนอกกรอบที่เลือกไปถึง 4 พิกเซล — จำกัด mask ให้อยู่แค่
+        # ในกรอบสี่เหลี่ยมที่เลือกเท่านั้น ไม่ว่ารูปทรงวงรีจะคำนวณล้นแค่ไหนก็ตาม
+        mask[:y, :] = 255
+        mask[y + height:, :] = 255
+        mask[:, :x] = 255
+        mask[:, x + width:] = 255
+        if existing_alpha is not None:
+            # รักษาพื้นที่ที่เคยลบไปแล้วในรอบก่อนไว้ — ไม่งั้นลบซ้ำรอบใหม่จะทำให้
+            # พื้นที่เดิมกลับมาทึบแสง (alpha 255) เพราะ mask ใหม่ไม่รู้จักพื้นที่เดิม
+            mask = np.minimum(mask, existing_alpha)
+
+        try:
+            result = segmentation.remove_background(pixels, mask)
+            result_b64 = _encode_png(result)
+        except (ValueError, cv2.error) as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        return jsonify({
+            "image": result_b64,
+            "metrics": {"erased_pixels": int(np.count_nonzero(mask == 0))},
+            "stage": "03_segmentation",
+            "operation": "remove-background",
         })
 
     @app.post("/pipeline/04_features/auto_tag")
@@ -243,6 +306,17 @@ def create_app(config=None):
             },
         })
 
+    @app.get("/forge/checkpoints")
+    def checkpoints():
+        if not app.config["FORGE_URL"]:
+            return jsonify({"error": "FORGE_URL is not configured"}), 503
+        try:
+            models = list_checkpoints(app.config["FORGE_URL"], min(app.config["FORGE_TIMEOUT_SECONDS"], 30))
+        except ForgeError as exc:
+            status = 504 if isinstance(exc.__cause__, requests.Timeout) else 502
+            return jsonify({"error": str(exc)}), status
+        return jsonify({"items": models})
+
     @app.post("/forge/txt2img")
     def txt2img():
         data = request.get_json(silent=True)
@@ -252,12 +326,17 @@ def create_app(config=None):
         if not isinstance(prompt, str) or not prompt.strip():
             return jsonify({"error": "prompt must be a nonempty string"}), 400
 
+        checkpoint = data.get("checkpoint", "default")
+        if not isinstance(checkpoint, str) or not checkpoint.strip() or len(checkpoint) > 512:
+            return jsonify({"error": "checkpoint must be a nonempty string of at most 512 characters"}), 400
+
         # An explicit scheduler needs a plain sampler name, without a legacy suffix.
         default_sampler = "DPM++ 2M Karras"
         if "scheduler" in data:
             default_sampler = "DPM++ 2M"
 
         payload = {
+            "checkpoint": checkpoint.strip(),
             "prompt": prompt.strip(),
             "negative_prompt": data.get("negative_prompt", ""),
             "steps": data.get("steps", 20),
@@ -304,75 +383,6 @@ def create_app(config=None):
         except ForgeError as exc:
             cause = exc.__cause__
             status = 504 if isinstance(cause, requests.Timeout) else 502
-            return jsonify({"error": str(exc)}), status
-        return jsonify(result)
-
-    @app.post("/forge/img2img")
-    def img2img():
-        data = request.get_json(silent=True)
-        if not isinstance(data, dict):
-            return jsonify({"error": "Expected a JSON object"}), 400
-        prompt = data.get("prompt")
-        if not isinstance(prompt, str) or not prompt.strip():
-            return jsonify({"error": "prompt must be a nonempty string"}), 400
-        try:
-            image_size = _image_size(data.get("init_image"))
-        except ValueError as exc:
-            return jsonify({"error": f"init_image: {exc}"}), 400
-
-        mode = data.get("mode", "text")
-        if mode not in ("text", "sketch", "inpaint", "inpaint-sketch"):
-            return jsonify({"error": "mode must be text, sketch, inpaint, or inpaint-sketch"}), 400
-        mask = data.get("mask")
-        if mode.startswith("inpaint") and mask is None:
-            return jsonify({"error": "mask is required for inpaint modes"}), 400
-        if not mode.startswith("inpaint") and mask is not None:
-            return jsonify({"error": "mask is only allowed for inpaint modes"}), 400
-        if mask is not None:
-            try:
-                mask_size = _image_size(mask)
-            except ValueError as exc:
-                return jsonify({"error": f"mask: {exc}"}), 400
-            if mask_size != image_size:
-                return jsonify({"error": "mask dimensions must match init_image"}), 400
-
-        strength = data.get("denoising_strength", 0.7)
-        if isinstance(strength, bool) or not isinstance(strength, (int, float)) or not math.isfinite(strength) or not 0 <= strength <= 1:
-            return jsonify({"error": "denoising_strength must be between 0 and 1"}), 400
-        payload = {
-            "init_image": data["init_image"],
-            "mask": mask,
-            "mode": mode,
-            "prompt": prompt.strip(),
-            "negative_prompt": data.get("negative_prompt", ""),
-            "denoising_strength": strength,
-            "steps": data.get("steps", 20),
-            "cfg_scale": data.get("cfg_scale", 8),
-            "sampler_name": data.get("sampler_name", "DPM++ 2M Karras"),
-            "seed": data.get("seed", -1),
-            "width": data.get("width", 512),
-            "height": data.get("height", 512),
-        }
-        for name in ("steps", "seed", "width", "height"):
-            if isinstance(payload[name], bool) or not isinstance(payload[name], int):
-                return jsonify({"error": f"{name} must be an integer"}), 400
-        if payload["seed"] < -1:
-            return jsonify({"error": "seed must be -1 or nonnegative"}), 400
-        if not 1 <= payload["steps"] <= 50 or payload["width"] not in (512, 768, 1024) or payload["height"] not in (512, 768, 1024):
-            return jsonify({"error": "steps or image size is out of range"}), 400
-        scale = payload["cfg_scale"]
-        if isinstance(scale, bool) or not isinstance(scale, (int, float)) or not math.isfinite(scale) or not 1 <= scale <= 30:
-            return jsonify({"error": "cfg_scale must be between 1 and 30"}), 400
-        if not isinstance(payload["negative_prompt"], str) or not isinstance(payload["sampler_name"], str):
-            return jsonify({"error": "negative_prompt and sampler_name must be strings"}), 400
-
-        forge_url = app.config["FORGE_URL"]
-        if not forge_url:
-            return jsonify({"error": "FORGE_URL is not configured"}), 503
-        try:
-            result = edit_image(payload, forge_url, app.config["FORGE_TIMEOUT_SECONDS"])
-        except ForgeError as exc:
-            status = 504 if isinstance(exc.__cause__, requests.Timeout) else 502
             return jsonify({"error": str(exc)}), status
         return jsonify(result)
 

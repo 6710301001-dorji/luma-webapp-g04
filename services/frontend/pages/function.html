@@ -20,7 +20,7 @@
 
     <!-- ขั้นที่ 1 — เลือกฟังก์ชันก่อน แต่ละฟังก์ชันทำงานแยกกัน ไม่ได้ทำต่อจากกัน -->
     <section class="fn-step" id="fn-step-function">
-      <h2 class="fn-step__title"><span class="fn-step__num">1</span> เลือกฟังก์ชัน</h2>
+      <h2 class="fn-step__title">เลือกฟังก์ชัน</h2>
 
       <div class="fn-choices">
         <button type="button" class="fn-choice" id="fn-choose-blur" data-function="blur">
@@ -29,8 +29,13 @@
         </button>
 
         <button type="button" class="fn-choice" id="fn-choose-objects" data-function="objects">
-          <span class="fn-choice__name">ตีกรอบวัตถุ</span>
-          <span class="fn-choice__desc">หาวัตถุที่มีสีใกล้เคียงกับสีที่เลือก แล้วตีกรอบให้</span>
+          <span class="fn-choice__name">จับหน้า</span>
+          <span class="fn-choice__desc">หาใบหน้าในภาพด้วยโมเดล AI แล้วตีกรอบให้</span>
+        </button>
+
+        <button type="button" class="fn-choice" id="fn-choose-removebg" data-function="removebg">
+          <span class="fn-choice__name">ลบพื้นหลัง</span>
+          <span class="fn-choice__desc">ลากเลือกบริเวณบนภาพ แล้วลบเป็นวงกลมให้โปร่งใส ส่วนนอกวงกลมคงเดิม</span>
         </button>
       </div>
     </section>
@@ -38,7 +43,7 @@
     <!-- ขั้นที่ 2 — เลือกภาพ (โผล่หลังเลือกฟังก์ชันแล้ว) -->
     <section class="fn-step" id="fn-step-image" hidden>
       <h2 class="fn-step__title">
-        <span class="fn-step__num">2</span> เลือกภาพสำหรับ<span id="fn-chosen-name"></span>
+        เลือกภาพสำหรับ<span id="fn-chosen-name"></span>
       </h2>
 
       <div class="fn-step__body">
@@ -52,7 +57,7 @@
 
     <!-- ขั้นที่ 3 — ทำงาน (โผล่หลังมีภาพแล้ว) -->
     <section class="fn-step" id="fn-step-work" hidden>
-      <h2 class="fn-step__title"><span class="fn-step__num">3</span> <span id="fn-work-title"></span></h2>
+      <h2 class="fn-step__title"><span id="fn-work-title"></span></h2>
 
       <div class="fn-layout">
         <div class="fn-canvas-card">
@@ -76,25 +81,27 @@
           </article>
 
           <article class="fn-tool" id="fn-tool-objects" hidden>
-            <p>ตั้งค่าสีที่ต้องการหา แล้วกดปุ่มด้านล่าง</p>
+            <p>ตั้งค่าความเข้มงวดแล้วกดปุ่มด้านล่าง — ระบบหาใบหน้าให้เอง ไม่ต้องเลือกสี</p>
 
             <div class="form-group">
-              <label for="fn-hue">สีที่ต้องการหา (องศาบนวงล้อสี 0-359)</label>
-              <input type="number" id="fn-hue" value="50" min="0" max="359" />
+              <label for="fn-confidence">ความมั่นใจขั้นต่ำ (0-1 — ยิ่งต่ำยิ่งจับง่าย แต่เสี่ยงจับผิด)</label>
+              <input type="number" id="fn-confidence" value="0.6" min="0" max="1" step="0.05" />
             </div>
 
             <div class="form-group">
-              <label for="fn-tolerance">ยอมให้เพี้ยนได้กี่องศา</label>
-              <input type="number" id="fn-tolerance" value="20" min="1" max="180" />
+              <label for="fn-min-size">ข้ามใบหน้าที่เล็กกว่า (พิกเซล)</label>
+              <input type="number" id="fn-min-size" value="20" min="0" />
             </div>
 
-            <div class="form-group">
-              <label for="fn-min-area">ข้ามวัตถุที่เล็กกว่า (พิกเซล)</label>
-              <input type="number" id="fn-min-area" value="200" min="0" />
-            </div>
-
-            <button type="button" id="fn-objects-btn" disabled>หาวัตถุในภาพ</button>
+            <button type="button" id="fn-objects-btn" disabled>หาใบหน้าในภาพ</button>
             <p class="fn-result" id="fn-objects-result" hidden></p>
+          </article>
+
+          <article class="fn-tool" id="fn-tool-removebg" hidden>
+            <p>ลากเมาส์บนภาพเพื่อกำหนดขอบเขต แล้วกดปุ่มลบพื้นหลัง — จะลบเฉพาะวงกลมที่แนบในขอบเขตนั้น ส่วนอื่นไม่ถูกแตะ</p>
+
+            <p class="fn-selection" id="fn-removebg-selection">ยังไม่ได้เลือกกรอบ</p>
+            <button type="button" id="fn-removebg-btn" disabled>ลบพื้นหลังในกรอบที่เลือก</button>
           </article>
 
           <div class="fn-tool__footer">

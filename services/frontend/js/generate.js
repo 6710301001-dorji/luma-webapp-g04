@@ -31,8 +31,11 @@
     const metaAssetId = document.getElementById("meta-asset-id");
     const metaPrompt = document.getElementById("meta-prompt");
     const metaInfo = document.getElementById("meta-info");
+    const downloadBtn = document.getElementById("download-btn");
 
     let isGenerating = false;
+    let currentImageUrl = null;
+    let currentAssetId = null;
 
     async function handleGenerateSubmit(event) {
       if (event) {
@@ -74,6 +77,8 @@
         height,
       };
 
+      if (form.checkpoint) payload.checkpoint = form.checkpoint.value;
+
       setLoading(true);
 
       try {
@@ -109,6 +114,9 @@
         if (metaPrompt) metaPrompt.textContent = prompt;
         if (metaInfo) metaInfo.textContent = describeSettings(payload, data.seed_used);
         if (previewMeta) previewMeta.removeAttribute("hidden");
+
+        currentImageUrl = imageUrl;
+        currentAssetId = data.asset_id;
       } catch (err) {
         console.error("Generate error:", err);
         showError(err.message || "ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ ตรวจสอบว่า Backend และ AI Engine ทำงานอยู่");
@@ -168,6 +176,36 @@
     function setStatus(text) {
       if (spinner) spinner.textContent = text;
     }
+
+    // โหลดภาพเป็น blob ก่อนดาวน์โหลด แทนใช้ <a href> ตรงๆ — เพราะ imageUrl ต้อง
+    // แนบ session cookie (/api/assets/<id>/image ต้อง login) และถ้า apiBase เป็นคนละ
+    // origin ในอนาคต (#57 เขียนไว้ว่า V4 อาจแยก origin) การนำทางตรงๆ ด้วย download
+    // attribute จะเปิดแท็บใหม่แทนที่จะดาวน์โหลดจริง
+    async function handleDownload() {
+      if (!currentImageUrl || !downloadBtn) return;
+      downloadBtn.disabled = true;
+      const label = downloadBtn.textContent;
+      downloadBtn.textContent = "กำลังดาวน์โหลด...";
+      try {
+        const res = await fetch(currentImageUrl);
+        if (!res.ok) throw new Error(`ดาวน์โหลดภาพไม่สำเร็จ (HTTP ${res.status})`);
+        const blob = await res.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = objectUrl;
+        link.download = `luma-${currentAssetId}.png`;
+        link.click();
+        URL.revokeObjectURL(objectUrl);
+      } catch (err) {
+        console.error("Download error:", err);
+        showError(err.message || "ดาวน์โหลดภาพไม่สำเร็จ");
+      } finally {
+        downloadBtn.disabled = false;
+        downloadBtn.textContent = label;
+      }
+    }
+
+    if (downloadBtn) downloadBtn.addEventListener("click", handleDownload);
 
     form.addEventListener("submit", handleGenerateSubmit);
 

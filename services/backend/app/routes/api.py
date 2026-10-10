@@ -10,11 +10,11 @@ import uuid
 from flask import Blueprint, current_app, jsonify, request, send_file, session
 from sqlalchemy import text
 from app.models import db, Asset, Job, Tag
-from app.services.forge_client import edit_image, ForgeClientError
+from app.services.forge_client import list_checkpoints, ForgeClientError
 from app.services.job_queue import enqueue
-from app.services.image_input import ALLOWED_SIZES, ImageInputError, decode_image, nearest_size
+from app.services.image_input import ALLOWED_SIZES
 from app.services.ai_engine_client import (
-    blur_region, extract_color_palette, find_objects, PipelineClientError)
+    blur_region, extract_color_palette, find_objects, remove_background, PipelineClientError)
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
@@ -42,7 +42,7 @@ def ping():
 
 
 def _parse_generation_params(data: dict, default_width: int = 512, default_height: int = 512):
-    """ตรวจพารามิเตอร์ที่ /api/generate และ /api/img2img ใช้ร่วมกัน -> (params, None) หรือ (None, response)
+    """ตรวจพารามิเตอร์ที่ /api/generate ใช้ -> (params, None) หรือ (None, response)
 
     ขอบเขตต้องตรงกับที่ ai-engine (#102) และ API_CONTRACT บังคับ
     ไม่งั้นค่าที่ผ่านตรงนี้จะไปโดน ai-engine ปฏิเสธ ผู้ใช้เห็น 502 แทน 400
@@ -118,6 +118,16 @@ def _parse_generation_params(data: dict, default_width: int = 512, default_heigh
     }, None
 
 
+@api_bp.get("/checkpoints")
+def get_checkpoints():
+    if not session.get("user_id"):
+        return jsonify({"error": "Unauthorized"}), 401
+    try:
+        return jsonify({"items": list_checkpoints()})
+    except ForgeClientError as exc:
+        return jsonify({"error": exc.message}), exc.status_code
+
+
 @api_bp.route("/generate", methods=["POST"])
 def handle_generate():
     """POST /api/generate — ใส่งานสร้างภาพเข้าคิว ตอบ 202 ทันที (Issue #21, #22)
@@ -143,6 +153,11 @@ def handle_generate():
     if error:
         return error
 
+    checkpoint = data.get("checkpoint", "default")
+    if not isinstance(checkpoint, str) or not checkpoint.strip() or len(checkpoint) > 512:
+        return jsonify({"error": "checkpoint must be a nonempty string of at most 512 characters"}), 400
+    if checkpoint.strip() != "default":
+        params["checkpoint"] = checkpoint.strip()
     job = enqueue(user_id, prompt, params)
     return jsonify({"status": "queued", "job_id": job.id}), 202
 
@@ -168,87 +183,6 @@ def get_job(job_id: int):
         "image_url": f"/api/assets/{job.asset_id}/image" if job.status == "done" and job.asset_id else None,
         "seed_used": job.seed_used,
         "error": job.error,
-    }), 200
-
-
-IMG2IMG_MODES = ("text", "sketch", "inpaint", "inpaint-sketch")
-
-
-@api_bp.route("/img2img", methods=["POST"])
-def handle_img2img():
-    """POST /api/img2img — แก้ภาพเดิมด้วย AI 4 โหมด (#33, Lecture 2 หน้า 58-61)
-
-    ต้อง login เหมือน /api/generate · ผลลัพธ์เป็น asset ใหม่ของผู้ใช้ (ภาพต้นฉบับไม่ถูกแก้)
-    ตรวจภาพ/mask/โหมดเองก่อนส่ง ai-engine เพื่อให้ผู้ใช้ได้ 400 ที่อ่านรู้เรื่อง ไม่ใช่ 502
-    """
-    user_id = session.get("user_id")
-    if not user_id:
-        return jsonify({"error": "ยังไม่ได้เข้าสู่ระบบ / Unauthorized"}), 401
-
-    data = request.get_json(silent=True)
-    if not isinstance(data, dict) or not data:
-        return jsonify({"error": "คำขอต้องเป็น JSON object / Request must be a JSON object"}), 400
-
-    prompt = data.get("prompt")
-    if not isinstance(prompt, str) or not prompt.strip():
-        return jsonify({"error": "กรุณาระบุคำบรรยายภาพ (prompt) / prompt is required"}), 400
-    prompt = prompt.strip()
-
-    mode = data.get("mode", "text")
-    if not isinstance(mode, str) or mode not in IMG2IMG_MODES:
-        return jsonify({"error": "mode ต้องเป็น text, sketch, inpaint หรือ inpaint-sketch"}), 400
-
-    # mask ใช้เฉพาะโหมด inpaint — โหมดอื่นถ้าส่งมา Forge จะทำ inpaint ทั้งที่ผู้ใช้ไม่ได้เลือก (รีวิว #130)
-    mask_value = data.get("mask")
-    if mode.startswith("inpaint") and mask_value is None:
-        return jsonify({"error": "โหมด inpaint ต้องระบายบริเวณที่จะแก้ (mask) / mask is required"}), 400
-    if not mode.startswith("inpaint") and mask_value is not None:
-        return jsonify({"error": "mask ใช้ได้เฉพาะโหมด inpaint / mask is only for inpaint modes"}), 400
-
-    strength = data.get("denoising_strength", 0.7)
-    if isinstance(strength, bool) or not isinstance(strength, (int, float)) or not 0 <= strength <= 1:
-        return jsonify({"error": "denoising_strength ต้องเป็นตัวเลข 0-1"}), 400
-
-    max_bytes = current_app.config.get("IMG2IMG_MAX_BYTES", 10 * 1024 * 1024)
-    try:
-        init_image, (image_width, image_height) = decode_image(data.get("init_image"), "init_image", max_bytes)
-        mask = None
-        if mask_value is not None:
-            mask, mask_size = decode_image(mask_value, "mask", max_bytes)
-            if mask_size != (image_width, image_height):
-                return jsonify({"error": "mask ต้องขนาดเท่าภาพต้นฉบับ / mask must match init_image size"}), 400
-    except ImageInputError as e:
-        return jsonify({"error": e.message}), e.status_code
-
-    # ไม่ระบุขนาด -> ใช้ขนาดที่ Forge รับซึ่งใกล้ภาพจริงที่สุด แทน 512x512 ที่ทำสัดส่วนเพี้ยน
-    params, error = _parse_generation_params(
-        data, default_width=nearest_size(image_width), default_height=nearest_size(image_height))
-    if error:
-        return error
-
-    try:
-        relative_path, seed_used = edit_image(
-            init_image=init_image, mask=mask, mode=mode, prompt=prompt,
-            denoising_strength=float(strength), **params)
-    except ForgeClientError as e:
-        return jsonify({"error": e.message}), e.status_code
-    except Exception as e:
-        current_app.logger.error(f"เกิดข้อผิดพลาดในการแก้ภาพ: {e}", exc_info=True)
-        return jsonify({"error": "เกิดข้อผิดพลาดในการติดต่อ AI Engine / Internal Server Error"}), 500
-
-    try:
-        new_asset = Asset(prompt=prompt, file_path=relative_path, user_id=user_id)
-        db.session.add(new_asset)
-        db.session.commit()
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.error(f"ไม่สามารถบันทึกข้อมูล Asset: {e}", exc_info=True)
-        return jsonify({"error": "ไม่สามารถบันทึกข้อมูลลงฐานข้อมูลได้ / Database error"}), 500
-
-    return jsonify({
-        "status": "success",
-        "asset_id": new_asset.id,
-        "image_url": f"/api/assets/{new_asset.id}/image",
     }), 200
 
 
@@ -505,11 +439,54 @@ def handle_blur_region():
     return jsonify({"image": image}), 200
 
 
+@api_bp.route("/pipeline/remove-background", methods=["POST"])
+def handle_remove_background():
+    """POST /api/pipeline/remove-background — ลบพื้นหลังเฉพาะกรอบที่ผู้ใช้ลากเลือก
+
+    ส่งต่อให้ ai-engine ที่ POST /pipeline/03_segmentation/remove-background ซึ่งเรียก
+    pipeline/03_segmentation/segmentation.py::remove_background() ตรงๆ (ฟังก์ชันนี้มีอยู่
+    ในไพพ์ไลน์แล้วแต่ไม่เคยมี route ผูกให้เรียกผ่าน HTTP มาก่อน)
+
+    ไม่บังคับ login เหมือน /api/pipeline/blur-region — เป็นแค่ transform ภาพที่
+    ส่งมาในคำขอเอง ไม่แตะข้อมูลที่เก็บไว้ของผู้ใช้คนไหน (ไม่มี id ให้เดา)
+    """
+    data = request.get_json(silent=True)
+    image_b64, error = _image_from_request(data)
+    if error:
+        return jsonify({"error": error}), 400
+
+    region = data.get("region")
+    if not isinstance(region, dict):
+        return jsonify({"error": "กรุณาระบุกรอบ (region) / region must be an object"}), 400
+
+    box = {}
+    for name, minimum in (("x", 0), ("y", 0), ("width", 1), ("height", 1)):
+        value, error = _whole_number(region.get(name), f"region.{name}", minimum, 20000)
+        if error:
+            return jsonify({"error": error}), 400
+        box[name] = value
+
+    # ขอบภาพตรวจที่ ai-engine เหมือน blur-region — มีภาพที่ถอดรหัสแล้วอยู่ในมือแล้ว
+
+    try:
+        image = remove_background(image_b64, box)
+    except PipelineClientError as e:
+        return jsonify({"error": e.message}), e.status_code
+    except Exception as e:
+        current_app.logger.error(f"เกิดข้อผิดพลาดในการลบพื้นหลัง: {e}", exc_info=True)
+        return jsonify({"error": "เกิดข้อผิดพลาดในการติดต่อ AI Engine / Internal Server Error"}), 500
+
+    return jsonify({"image": image}), 200
+
+
 @api_bp.route("/pipeline/find-objects", methods=["POST"])
 def handle_find_objects():
-    """POST /api/pipeline/find-objects — หาพิกัดกรอบของวัตถุในภาพ (#163)
+    """POST /api/pipeline/find-objects — หาพิกัดกรอบใบหน้าในภาพ (#163, จับหน้าแทนสี)
 
     ส่งต่อให้ ai-engine ที่ POST /pipeline/03_segmentation/contours
+    ชื่อ route/operation คงไว้ตามเดิมตั้งใจ — 05_evaluation/benchmark_baseline.py
+    วัด URL นี้อยู่แล้วด้วยค่า default ล้วนๆ และเช็คแค่รูปร่าง objects/count
+    ไม่ผูกกับอัลกอริทึมข้างใน เปลี่ยนได้โดยไม่กระทบ evidence ที่ commit ไปแล้ว
 
     คืนแค่พิกัด ไม่วาดลงภาพ — หน้าเว็บวาดกรอบเอง ผู้ใช้จึงยังเห็นภาพต้นฉบับชัดๆ
     """
@@ -518,25 +495,17 @@ def handle_find_objects():
     if error:
         return jsonify({"error": error}), 400
 
-    # ช่วงค่าตามที่ selective_color_mask / clean_mask ของ pipeline รับได้
-    limits = {
-        "center_degrees": (0, 359, 50),
-        "tolerance_degrees": (1, 180, 20),
-        "saturation_min": (0, 255, 60),
-        "value_min": (0, 255, 40),
-        # ขั้นต่ำ 3 ให้ตรงกับ clean_mask() ของ pipeline (segmentation.py:68)
-        # ถ้ารับ 1 ผ่านไป ai-engine จะ raise ValueError -> ผู้ใช้เห็น 502 ทั้งที่ค่าตัวเองผิด
-        "kernel_size": (3, 31, 3),
-        "minimum_area": (0, 10_000_000, 200),
-    }
-    params = {}
-    for name, (minimum, maximum, default) in limits.items():
-        value, error = _whole_number(data.get(name, default), name, minimum, maximum)
-        if error:
-            return jsonify({"error": error}), 400
-        params[name] = value
-    if params["kernel_size"] % 2 == 0:
-        return jsonify({"error": "kernel_size ต้องเป็นเลขคี่ / kernel_size must be an odd number"}), 400
+    confidence_min = data.get("confidence_min", 0.6)
+    if isinstance(confidence_min, bool) or not isinstance(confidence_min, (int, float)):
+        return jsonify({"error": "confidence_min ต้องเป็นตัวเลข / confidence_min must be a number"}), 400
+    if not 0 <= confidence_min <= 1:
+        return jsonify({"error": "confidence_min ต้องอยู่ระหว่าง 0-1 / confidence_min must be 0-1"}), 400
+
+    min_size, error = _whole_number(data.get("min_size", 20), "min_size", 0, 10_000)
+    if error:
+        return jsonify({"error": error}), 400
+
+    params = {"confidence_min": float(confidence_min), "min_size": min_size}
 
     try:
         objects = find_objects(image_b64, params)

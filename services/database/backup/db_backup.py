@@ -42,33 +42,36 @@ HERE = Path(__file__).resolve().parent            # services/database/backup
 DATABASE_DIR = HERE.parent                        # services/database
 
 
-def default_uploads_path(db_path=None):
-    """หาโฟลเดอร์ uploads ของโปรเจกต์ (#207 ST5)
-    1. ตรวจสอบ LUMA_UPLOADS_DIR จาก environment variable ก่อน (สำหรับการทดสอบหรือ deployment พิเศษ)
-    2. ถ้ามี uploads อยู่ข้าง db_path (เช่น layout ปกติ หรือ test fixture) ให้ใช้ db_path.parent / "uploads"
-    3. ถาม instance_path ของ backend ผ่าน migrate_app
-    4. fallback: DATABASE_DIR.parent / "backend" / "instance" / "uploads"
+def default_uploads_path():
+    """โฟลเดอร์ uploads ของแอปจริง — ใช้กับคำสั่ง CLI เท่านั้น (#207 ST5)
+
+    1. LUMA_UPLOADS_DIR ถ้าตั้งไว้
+    2. instance_path ของ backend ผ่าน migrate_app — ที่เดียวกับที่ api.py เขียนภาพลงไป
+       ไม่ทึกทักว่า uploads อยู่ข้างไฟล์ .db (config.py ย้าย .db ไปที่อื่นได้)
     """
     env_dir = os.environ.get("LUMA_UPLOADS_DIR")
     if env_dir:
         return Path(env_dir)
 
-    if db_path is not None:
-        local_uploads = Path(db_path).parent / "uploads"
-        if local_uploads.is_dir():
-            return local_uploads
+    sys.path.insert(0, str(DATABASE_DIR))
+    from migrate_app import create_migration_app
 
-    try:
-        sys.path.insert(0, str(DATABASE_DIR))
-        from migrate_app import create_migration_app
-        app = create_migration_app()
-        return Path(app.instance_path) / "uploads"
-    except Exception:
-        pass
+    return Path(create_migration_app().instance_path) / "uploads"
 
-    if db_path is not None:
-        return Path(db_path).parent / "uploads"
-    return (DATABASE_DIR.parent / "backend" / "instance" / "uploads").resolve()
+
+def _uploads_for(db_path, uploads_dir):
+    """uploads ที่ backup()/restore() ใช้เมื่อผู้เรียกไม่ได้ระบุ
+
+    ห้ามถาม instance_path ของแอปที่นี่ — เรียกกับ .db ชั่วคราว (test, สำเนา) แล้ว restore
+    จะเขียนภาพลง uploads จริงของโปรเจกต์ (ทดลองแล้วเกิดจริง) จึงใช้ข้าง .db แบบเดิม
+    ส่วนคำสั่ง CLI ส่ง default_uploads_path() มาให้เองใน main()
+    """
+    if uploads_dir is not None:
+        return Path(uploads_dir)
+    env_dir = os.environ.get("LUMA_UPLOADS_DIR")
+    if env_dir:
+        return Path(env_dir)
+    return Path(db_path).parent / "uploads"
 
 
 def backup(db_path, backup_dir, uploads_dir=None):
@@ -98,7 +101,7 @@ def backup(db_path, backup_dir, uploads_dir=None):
             number += 1
 
     # สำรองภาพด้วย — DB เก็บแค่ path ของภาพ ไม่ได้เก็บตัวภาพ (#207 ST5)
-    uploads = Path(uploads_dir) if uploads_dir is not None else default_uploads_path(db_path)
+    uploads = _uploads_for(db_path, uploads_dir)
     saved_uploads = _uploads_backup_dir(target)
     # จำไว้ก่อนว่ามีโฟลเดอร์ชื่อนี้อยู่แล้วไหม — ขั้นเก็บกวาดต้องลบเฉพาะของที่ตัวเองสร้าง
     uploads_existed_before = saved_uploads.exists()
@@ -146,7 +149,7 @@ def restore(backup_file, db_path, uploads_dir=None):
 
         # คืนภาพที่หายไป — เติมเฉพาะไฟล์ที่ขาด ไม่ลบภาพที่มีอยู่ (#207 ST5)
         saved_uploads = _uploads_backup_dir(backup_file)
-        target_uploads = Path(uploads_dir) if uploads_dir is not None else default_uploads_path(db_path)
+        target_uploads = _uploads_for(db_path, uploads_dir)
         if saved_uploads.is_dir():
             target_uploads.mkdir(parents=True, exist_ok=True)
             shutil.copytree(saved_uploads, target_uploads, dirs_exist_ok=True)
@@ -331,12 +334,12 @@ def _force_utf8_stdout() -> None:
 def main(args):
     if args == ["backup"]:
         db_path = default_db_path()
-        uploads = default_uploads_path(db_path)
+        uploads = default_uploads_path()
         print("backup แล้ว:", backup(db_path, HERE, uploads_dir=uploads))
         return 0
     if len(args) == 2 and args[0] == "restore":
         db_path = default_db_path()
-        uploads = default_uploads_path(db_path)
+        uploads = default_uploads_path()
         safety = restore(args[1], db_path, uploads_dir=uploads)
         print("restore แล้ว จาก:", args[1])
         if safety:

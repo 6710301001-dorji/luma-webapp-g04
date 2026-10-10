@@ -1,6 +1,6 @@
 /* ==========================================================================
    LUMA — หน้า Function (Issue #163)
-   เบลอเฉพาะจุด + ตีกรอบวัตถุ
+   เบลอเฉพาะจุด + จับหน้า
    ========================================================================== */
 
 /* ขั้นตอน 1-2-3 — แสดงทีละขั้น ไม่เปิดทุกอย่างพร้อมกัน
@@ -21,18 +21,6 @@
   font-size: 1.05rem;
 }
 
-.fn-step__num {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.6rem;
-  height: 1.6rem;
-  font-size: 0.9rem;
-  color: #fff;
-  background: #6d28d9;
-  border-radius: 50%;
-}
-
 .fn-step__body {
   display: flex;
   flex-wrap: wrap;
@@ -40,10 +28,11 @@
   gap: 1rem;
 }
 
-/* ปุ่มเลือกฟังก์ชัน — ทำให้ใหญ่พอที่จะอ่านคำอธิบายได้ก่อนกด */
+/* ปุ่มเลือกฟังก์ชัน — เรียงจากบนลงล่างทีละแถว ไม่ใช่เรียงข้างกัน
+   เพราะยิ่งมีฟังก์ชันเพิ่ม ยิ่งอ่านคำอธิบายง่ายกว่าถ้าเรียงเป็นแถวเดียว */
 .fn-choices {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  display: flex;
+  flex-direction: column;
   gap: 0.75rem;
 }
 
