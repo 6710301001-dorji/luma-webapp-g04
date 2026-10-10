@@ -3,6 +3,8 @@
 import os
 import base64
 import binascii
+import hmac
+import ipaddress
 import math
 from importlib import import_module
 
@@ -52,14 +54,43 @@ def _encode_png(image):
     return base64.b64encode(png.tobytes()).decode("ascii")
 
 
+def _has_engine_key(key):
+    return isinstance(key, str) and bool(key.strip())
+
+
+def _validate_bind_host(host, key):
+    """Do not expose the service on a network without a configured key."""
+    try:
+        loopback = ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        loopback = host.lower() == "localhost"
+    if not loopback and not _has_engine_key(key):
+        raise RuntimeError("AI_ENGINE_KEY is required for a non-loopback AI_ENGINE_HOST")
+
+
 def create_app(config=None):
     app = Flask(__name__)
     app.config.update(
         FORGE_URL=os.environ.get("FORGE_URL"),
         FORGE_TIMEOUT_SECONDS=120,
+        AI_ENGINE_KEY=os.environ.get("AI_ENGINE_KEY"),
     )
     if config:
         app.config.update(config)
+    if not _has_engine_key(app.config["AI_ENGINE_KEY"]):
+        app.logger.warning("AI_ENGINE_KEY is not configured; only /health is available")
+
+    @app.before_request
+    def require_engine_key():
+        if request.path == "/health":
+            return None
+        expected = app.config["AI_ENGINE_KEY"]
+        provided = request.headers.get("X-LUMA-Engine-Key", "")
+        if not _has_engine_key(expected) or not hmac.compare_digest(
+            provided.encode("utf-8"), expected.encode("utf-8")
+        ):
+            return jsonify({"error": "Invalid AI engine key"}), 401
+        return None
 
     @app.get("/health")
     def health():
@@ -390,4 +421,7 @@ def create_app(config=None):
 
 
 if __name__ == "__main__":
-    create_app().run(host=os.environ.get("AI_ENGINE_HOST", "127.0.0.1"), port=int(os.environ.get("AI_ENGINE_PORT", "8000")))
+    host = os.environ.get("AI_ENGINE_HOST", "127.0.0.1")
+    app = create_app()
+    _validate_bind_host(host, app.config["AI_ENGINE_KEY"])
+    app.run(host=host, port=int(os.environ.get("AI_ENGINE_PORT", "8000")))

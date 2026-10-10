@@ -1,15 +1,12 @@
 """HTTP contract tests for the Function page pipeline routes (issue #163)."""
 
 import base64
-import sys
-from pathlib import Path
 
 import cv2
 import numpy as np
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from app import create_app  # noqa: E402
+from conftest import authenticated_client
 
 
 def _encode_png(image):
@@ -42,7 +39,7 @@ def _blur_body(**params):
 
 def test_blur_route_changes_only_the_selected_region():
     original = _checkerboard()
-    client = create_app({"TESTING": True}).test_client()
+    client = authenticated_client()
 
     response = client.post("/pipeline/02_enhancement/blur", json=_blur_body())
 
@@ -65,7 +62,7 @@ def test_blur_route_changes_only_the_selected_region():
     {"image": base64.b64encode(b"not an image").decode("ascii")},
 ])
 def test_blur_route_rejects_invalid_images_and_bodies(body):
-    response = create_app({"TESTING": True}).test_client().post(
+    response = authenticated_client().post(
         "/pipeline/02_enhancement/blur", json=body
     )
     assert response.status_code == 400
@@ -89,7 +86,7 @@ def test_blur_route_rejects_invalid_images_and_bodies(body):
 ])
 def test_blur_route_rejects_invalid_parameters(params):
     body = {"image": _encode_png(_checkerboard()), "params": params}
-    response = create_app({"TESTING": True}).test_client().post(
+    response = authenticated_client().post(
         "/pipeline/02_enhancement/blur", json=body
     )
     assert response.status_code == 400
@@ -125,7 +122,7 @@ def test_contours_route_returns_sorted_json_boxes_with_confidence(monkeypatch):
         [70, 10, 40, 70, *([0] * 10), 0.9],   # area 2800, larger
     ]
     monkeypatch.setattr(cv2, "FaceDetectorYN_create", lambda *a, **k: _StubFaceDetector(rows))
-    client = create_app({"TESTING": True}).test_client()
+    client = authenticated_client()
 
     response = client.post(
         "/pipeline/03_segmentation/contours", json=_contours_body()
@@ -150,7 +147,7 @@ def test_contours_route_returns_200_and_empty_list_when_no_face_found():
     # the real YuNet model genuinely finds nothing in a blank synthetic image —
     # no monkeypatch needed, this exercises the real detector
     body = _contours_body()
-    response = create_app({"TESTING": True}).test_client().post(
+    response = authenticated_client().post(
         "/pipeline/03_segmentation/contours", json=body
     )
     assert response.status_code == 200
@@ -171,7 +168,7 @@ def test_contours_route_rejects_invalid_parameters(params):
         body = _contours_body(**params)
     else:
         body = {"image": _encode_png(_blank_image()), "params": params}
-    response = create_app({"TESTING": True}).test_client().post(
+    response = authenticated_client().post(
         "/pipeline/03_segmentation/contours", json=body
     )
     assert response.status_code == 400
@@ -186,7 +183,7 @@ def test_contours_route_rejects_invalid_parameters(params):
     {"image": base64.b64encode(b"not an image").decode("ascii")},
 ])
 def test_contours_route_rejects_invalid_images_and_bodies(body):
-    response = create_app({"TESTING": True}).test_client().post(
+    response = authenticated_client().post(
         "/pipeline/03_segmentation/contours", json=body
     )
     assert response.status_code == 400
@@ -207,7 +204,7 @@ def _remove_bg_body(region=None):
 
 def test_remove_background_route_erases_an_ellipse_inscribed_in_the_region_not_the_whole_box():
     """[กรณีทดสอบ]: ลบเป็นวงรี/วงกลมที่แนบในกรอบที่ลาก ไม่ใช่ทั้งกรอบสี่เหลี่ยม (ตามที่ผู้ใช้ขอ)"""
-    client = create_app({"TESTING": True}).test_client()
+    client = authenticated_client()
 
     response = client.post("/pipeline/03_segmentation/remove-background", json=_remove_bg_body())
 
@@ -234,7 +231,7 @@ def test_remove_background_route_never_erases_outside_a_tiny_region():
     axes คำนวณขั้นต่ำ 1 พิกเซลเสมอ — ถ้าไม่จำกัด mask ให้อยู่แค่ในกรอบที่เลือก
     วงกลมรัศมี 1 จะล้นไปลบพิกเซลข้างเคียงนอกกรอบที่ผู้ใช้ไม่ได้เลือกไว้ด้วย
     """
-    client = create_app({"TESTING": True}).test_client()
+    client = authenticated_client()
     body = {
         "image": _encode_png(_checkerboard()),
         "params": {"region": {"x": 12, "y": 12, "width": 1, "height": 1}},
@@ -257,7 +254,7 @@ def test_remove_background_route_preserves_previously_erased_area_on_repeat():
     บั๊กเดิม: สร้าง mask 255 ใหม่ทุกรอบโดยไม่สนใจ alpha เดิมของภาพที่ส่งเข้ามา
     ทำให้พื้นที่ที่เคยโปร่งใสจากรอบก่อนกลับมาทึบแสงเมื่อกดลบรอบใหม่ (รีวิว #207)
     """
-    client = create_app({"TESTING": True}).test_client()
+    client = authenticated_client()
     original = _checkerboard()
 
     first = client.post("/pipeline/03_segmentation/remove-background", json={
@@ -294,7 +291,7 @@ def test_remove_background_route_preserves_previously_erased_area_on_repeat():
 ])
 def test_remove_background_route_rejects_invalid_parameters(params):
     body = {"image": _encode_png(_checkerboard()), "params": params}
-    response = create_app({"TESTING": True}).test_client().post(
+    response = authenticated_client().post(
         "/pipeline/03_segmentation/remove-background", json=body
     )
     assert response.status_code == 400
@@ -309,7 +306,7 @@ def test_remove_background_route_rejects_invalid_parameters(params):
     {"image": base64.b64encode(b"not an image").decode("ascii")},
 ])
 def test_remove_background_route_rejects_invalid_images_and_bodies(body):
-    response = create_app({"TESTING": True}).test_client().post(
+    response = authenticated_client().post(
         "/pipeline/03_segmentation/remove-background", json=body
     )
     assert response.status_code == 400

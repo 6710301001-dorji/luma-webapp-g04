@@ -1,16 +1,13 @@
 """Exercise the auto-tag route with real PNG bytes."""
 
 import base64
-import sys
 from io import BytesIO
-from pathlib import Path
 
 import pytest
 from PIL import Image
 
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from app import create_app  # noqa: E402
+from conftest import authenticated_client
 
 
 def _png(color=(255, 128, 0), size=(120, 80)):
@@ -22,7 +19,7 @@ def _png(color=(255, 128, 0), size=(120, 80)):
 
 def test_auto_tag_route_returns_tags_and_reasons_in_pipeline_contract():
     image = _png()
-    client = create_app({"TESTING": True}).test_client()
+    client = authenticated_client()
 
     response = client.post("/pipeline/04_features/auto_tag", json={
         "image": image,
@@ -39,7 +36,7 @@ def test_auto_tag_route_returns_tags_and_reasons_in_pipeline_contract():
 
 def test_auto_tag_route_is_deterministic():
     body = {"image": _png((0, 0, 255)), "params": {}}
-    client = create_app({"TESTING": True}).test_client()
+    client = authenticated_client()
 
     first = client.post("/pipeline/04_features/auto_tag", json=body)
     second = client.post("/pipeline/04_features/auto_tag", json=body)
@@ -57,7 +54,7 @@ def test_auto_tag_route_is_deterministic():
     {"image": _png(), "params": []},
 ])
 def test_auto_tag_route_rejects_invalid_requests(body):
-    client = create_app({"TESTING": True}).test_client()
+    client = authenticated_client()
     response = client.post("/pipeline/04_features/auto_tag", json=body)
     assert response.status_code == 400
     assert "error" in response.json

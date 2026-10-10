@@ -2,16 +2,13 @@
 
 import base64
 import json
-import sys
 from io import BytesIO
-from pathlib import Path
 
 import pytest
 import requests
 from PIL import Image
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from app import create_app  # noqa: E402
+from conftest import authenticated_client
 
 
 def _valid_png_base64():
@@ -38,7 +35,7 @@ def test_generation_forwards_defaults_and_extracts_real_forge_seed(monkeypatch):
         return Response()
 
     monkeypatch.setattr(requests, "post", post)
-    client = create_app({"TESTING": True, "FORGE_URL": "http://forge-host:7860"}).test_client()
+    client = authenticated_client({"FORGE_URL": "http://forge-host:7860"})
     response = client.post("/forge/txt2img", json={"prompt": "a tree"})
 
     assert response.status_code == 200
@@ -73,7 +70,7 @@ def test_scheduler_and_legacy_sampler_are_forwarded_separately(monkeypatch, body
         return Response()
 
     monkeypatch.setattr(requests, "post", post)
-    response = create_app({"TESTING": True, "FORGE_URL": "http://forge-host:7860"}).test_client().post(
+    response = authenticated_client({"FORGE_URL": "http://forge-host:7860"}).post(
         "/forge/txt2img", json={"prompt": "a tree", **body}
     )
     assert response.status_code == 200
@@ -89,7 +86,7 @@ def test_scheduler_and_legacy_sampler_are_forwarded_separately(monkeypatch, body
 ])
 def test_invalid_or_conflicting_scheduler_is_rejected_before_forge(monkeypatch, body):
     monkeypatch.setattr(requests, "post", lambda *args, **kwargs: pytest.fail("Forge was called"))
-    response = create_app({"TESTING": True}).test_client().post(
+    response = authenticated_client().post(
         "/forge/txt2img", json={"prompt": "a tree", **body}
     )
     assert response.status_code == 400
@@ -98,7 +95,7 @@ def test_invalid_or_conflicting_scheduler_is_rejected_before_forge(monkeypatch, 
 @pytest.mark.parametrize("body", [{"prompt": ""}, {"prompt": "x", "steps": True}])
 def test_bad_requests_never_reach_forge(monkeypatch, body):
     monkeypatch.setattr(requests, "post", lambda *a, **kw: pytest.fail("Forge was called"))
-    response = create_app({"TESTING": True}).test_client().post("/forge/txt2img", json=body)
+    response = authenticated_client().post("/forge/txt2img", json=body)
     assert response.status_code == 400
 
 
@@ -107,7 +104,7 @@ def test_timeout_is_reported_as_gateway_timeout(monkeypatch):
         raise requests.Timeout("Forge is slow")
 
     monkeypatch.setattr(requests, "post", timeout)
-    response = create_app({"TESTING": True, "FORGE_URL": "http://forge-host:7860"}).test_client().post(
+    response = authenticated_client({"FORGE_URL": "http://forge-host:7860"}).post(
         "/forge/txt2img", json={"prompt": "a tree"}
     )
     assert response.status_code == 504
@@ -116,7 +113,7 @@ def test_timeout_is_reported_as_gateway_timeout(monkeypatch):
 def test_missing_forge_url_is_reported_before_call(monkeypatch):
     monkeypatch.delenv("FORGE_URL", raising=False)
     monkeypatch.setattr(requests, "post", lambda *a, **kw: pytest.fail("Forge was called"))
-    response = create_app({"TESTING": True}).test_client().post(
+    response = authenticated_client().post(
         "/forge/txt2img", json={"prompt": "a tree"}
     )
     assert response.status_code == 503
@@ -140,7 +137,7 @@ def test_explicit_parameters_are_forwarded(monkeypatch):
     body = {"prompt": "(tree:1.2)", "negative_prompt": "blur", "steps": 30,
             "cfg_scale": 7.5, "sampler_name": "Euler a", "seed": 123,
             "width": 768, "height": 512}
-    response = create_app({"TESTING": True, "FORGE_URL": "http://forge-host:7860"}).test_client().post(
+    response = authenticated_client({"FORGE_URL": "http://forge-host:7860"}).post(
         "/forge/txt2img", json=body
     )
     assert response.status_code == 200
@@ -163,7 +160,7 @@ def test_unusable_forge_response_is_bad_gateway(monkeypatch, result):
             return result
 
     monkeypatch.setattr(requests, "post", lambda *a, **kw: Response())
-    response = create_app({"TESTING": True, "FORGE_URL": "http://forge-host:7860"}).test_client().post(
+    response = authenticated_client({"FORGE_URL": "http://forge-host:7860"}).post(
         "/forge/txt2img", json={"prompt": "a tree"}
     )
     assert response.status_code == 502
@@ -174,7 +171,7 @@ def test_unreachable_forge_is_bad_gateway(monkeypatch):
         raise requests.ConnectionError("Forge is offline")
 
     monkeypatch.setattr(requests, "post", disconnected)
-    response = create_app({"TESTING": True, "FORGE_URL": "http://forge-host:7860"}).test_client().post(
+    response = authenticated_client({"FORGE_URL": "http://forge-host:7860"}).post(
         "/forge/txt2img", json={"prompt": "a tree"}
     )
     assert response.status_code == 502
@@ -182,7 +179,7 @@ def test_unreachable_forge_is_bad_gateway(monkeypatch):
 
 @pytest.mark.parametrize("checkpoint", [True, 123, None, [], "", " ", "x" * 513])
 def test_checkpoint_validation(checkpoint):
-    response = create_app({"TESTING": True}).test_client().post(
+    response = authenticated_client().post(
         "/forge/txt2img", json={"prompt": "cat", "checkpoint": checkpoint})
     assert response.status_code == 400
 
@@ -207,7 +204,7 @@ def test_checkpoint_catalogue_and_selected_model_reach_forge(monkeypatch):
         return Response({"images": [VALID_PNG], "seed_used": 42})
     monkeypatch.setattr(requests, "post", post)
     assert list_checkpoints("http://forge") == [{"title": "portrait [111]"}, {"title": "landscape [222]"}]
-    client = create_app({"TESTING": True, "FORGE_URL": "http://forge"}).test_client()
+    client = authenticated_client({"FORGE_URL": "http://forge"})
     assert client.get("/forge/checkpoints").json["items"][1]["title"] == "landscape [222]"
     response = client.post("/forge/txt2img", json={"prompt": "cat", "checkpoint": "landscape [222]"})
     assert response.status_code == 200
@@ -227,7 +224,7 @@ def test_checkpoint_catalogue_rejects_malformed_response(monkeypatch, data):
         def json(self):
             return data
     monkeypatch.setattr(requests, "get", lambda *a, **kw: Response())
-    client = create_app({"TESTING": True, "FORGE_URL": "http://forge"}).test_client()
+    client = authenticated_client({"FORGE_URL": "http://forge"})
     assert client.get("/forge/checkpoints").status_code == 502
 
 
@@ -235,5 +232,5 @@ def test_checkpoint_catalogue_timeout(monkeypatch):
     def timeout(*a, **kw):
         raise requests.Timeout()
     monkeypatch.setattr(requests, "get", timeout)
-    client = create_app({"TESTING": True, "FORGE_URL": "http://forge"}).test_client()
+    client = authenticated_client({"FORGE_URL": "http://forge"})
     assert client.get("/forge/checkpoints").status_code == 504

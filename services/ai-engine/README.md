@@ -4,11 +4,18 @@
 
 From the repository root, activate `.venv` and start Forge with its API enabled.
 For local development, `python tools/mock_forge_server.py` can stand in for Forge.
-Then start this service in a second terminal:
+Set `AI_ENGINE_KEY` to a private shared value, then start this service in a
+second terminal:
 
 ```bash
-FORGE_URL=http://127.0.0.1:7860 python services/ai-engine/app.py
+FORGE_URL=http://127.0.0.1:7860 AI_ENGINE_KEY="$AI_ENGINE_KEY" python services/ai-engine/app.py
 ```
+
+Every route except `GET /health` requires the same value in the
+`X-LUMA-Engine-Key` request header. Missing or incorrect keys receive HTTP 401.
+The backend must send this header on its Forge and pipeline requests using its
+own configured copy of `AI_ENGINE_KEY`; do not put the value in source control.
+If the key is not configured, work routes stay unavailable even on localhost.
 
 The LUMA backend calls `POST http://127.0.0.1:8000/forge/txt2img` with JSON such as
 `{"prompt":"a tree","seed":123}`. This service calls Forge's
@@ -75,7 +82,8 @@ image receive HTTP 400.
 When Forge runs on another computer, set `FORGE_URL` to its reachable address
 (for example, `http://192.168.1.30:7860`) before starting this service. `localhost`
 always refers to the computer running this service. Set `AI_ENGINE_HOST=0.0.0.0`
-when the backend must connect from another computer; the service listens on port
+when the backend must connect from another computer. Direct startup refuses a
+non-loopback bind if `AI_ENGINE_KEY` is missing. The service listens on port
 8000 by default. For local tests, run
 `python -m pytest services/ai-engine/tests -q`.
 

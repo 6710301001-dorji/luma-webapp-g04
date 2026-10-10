@@ -1,15 +1,12 @@
 """Exercise the backend-to-AI-engine palette contract with real PNG bytes."""
 
 import base64
-import sys
 from io import BytesIO
-from pathlib import Path
 
 import pytest
 from PIL import Image
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from app import create_app  # noqa: E402
+from conftest import authenticated_client
 
 
 def _two_color_png():
@@ -24,7 +21,7 @@ def _two_color_png():
 
 def test_palette_route_returns_backend_contract():
     image = _two_color_png()
-    client = create_app({"TESTING": True}).test_client()
+    client = authenticated_client()
 
     response = client.post("/pipeline/04_features/color_palette", json={
         "image": image, "params": {"colors": 5},
@@ -46,7 +43,7 @@ def test_palette_route_returns_backend_contract():
     {"image": _two_color_png(), "params": {"colors": 6}},
 ])
 def test_palette_route_rejects_invalid_requests(body):
-    client = create_app({"TESTING": True}).test_client()
+    client = authenticated_client()
     response = client.post("/pipeline/04_features/color_palette", json=body)
     assert response.status_code == 400
     assert "error" in response.json
