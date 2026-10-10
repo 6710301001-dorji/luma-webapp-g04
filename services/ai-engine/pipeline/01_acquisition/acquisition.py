@@ -77,7 +77,9 @@ def read_exif(path):
     """
     validate_image_file(path)
     with Image.open(path) as source:
-        raw = {TAGS.get(key, key): value for key, value in source.getexif().items()}
+        exif = source.getexif()
+        raw = {TAGS.get(key, key): value for key, value in exif.items()}
+        raw.update({TAGS.get(key, key): value for key, value in exif.get_ifd(0x8769).items()})
     names = {
         "FocalLength": "focal_length_mm",
         "ISOSpeedRatings": "iso",

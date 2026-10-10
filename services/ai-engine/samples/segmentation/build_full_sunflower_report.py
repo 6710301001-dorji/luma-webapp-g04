@@ -58,6 +58,17 @@ def sha256(path):
     return ':'.join(digest[index:index + 8] for index in range(0, 64, 8))
 
 
+def compare_morphology(image, truth):
+    """Evaluate the same fixed HSV mask before and after the pipeline cleanup."""
+    parameters = base.PARAMETERS
+    raw = base.SEGMENTATION.selective_color_mask(
+        image, parameters['center_degrees'], parameters['tolerance_degrees'],
+        parameters['saturation_min'], parameters['value_min'])
+    cleaned = base.SEGMENTATION.segment(image, **parameters)['mask']
+    return (base.METRICS.segmentation_quality(truth, raw),
+            base.METRICS.segmentation_quality(truth, cleaned), cleaned)
+
+
 def build(images_dir, truth_dir, output_dir=DEFAULT_OUTPUT):
     images_dir, truth_dir, output_dir = map(Path, (images_dir, truth_dir, output_dir))
     for case in CASE_IDS:
@@ -66,7 +77,7 @@ def build(images_dir, truth_dir, output_dir=DEFAULT_OUTPUT):
                 raise FileNotFoundError(path)
     for folder in ('ground_truth', 'predictions'):
         (output_dir / folder).mkdir(parents=True, exist_ok=True)
-    rows, hashes = [], []
+    rows, hashes, raw_rows, ablation_rows = [], [], [], []
     positive, negative = np.zeros(182, dtype=np.int64), np.zeros(182, dtype=np.int64)
     for case in CASE_IDS:
         source, truth_path = images_dir / f'{case}.jpg', truth_dir / f'{case}.png'
@@ -75,8 +86,18 @@ def build(images_dir, truth_dir, output_dir=DEFAULT_OUTPUT):
         pos, neg = score_histograms(image, truth)
         positive += pos
         negative += neg
-        prediction = base.SEGMENTATION.segment(image, **base.PARAMETERS)['mask']
-        rows.append({'case': case, **base.METRICS.segmentation_quality(truth, prediction)})
+        raw_metrics, cleaned_metrics, prediction = compare_morphology(image, truth)
+        raw_rows.append({'case': case, **raw_metrics})
+        rows.append({'case': case, **cleaned_metrics})
+        ablation_rows.append({
+            'case': case, 'raw_iou': raw_metrics['iou'],
+            'cleaned_iou': cleaned_metrics['iou'],
+            'delta_iou': cleaned_metrics['iou'] - raw_metrics['iou'],
+            'raw_precision': raw_metrics['precision'],
+            'cleaned_precision': cleaned_metrics['precision'],
+            'raw_recall': raw_metrics['recall'],
+            'cleaned_recall': cleaned_metrics['recall'],
+        })
         prediction_path = output_dir / 'predictions' / f'{case}.png'
         if not cv2.imwrite(str(prediction_path), prediction):
             raise OSError(f'cannot save {prediction_path}')
@@ -86,8 +107,18 @@ def build(images_dir, truth_dir, output_dir=DEFAULT_OUTPUT):
         hashes.append({'case': case, 'image_sha256': sha256(source),
                        'truth_sha256': sha256(truth_path), 'prediction_sha256': sha256(prediction_path)})
     summary = base._summary(rows)
+    raw_summary = base._summary(raw_rows)
+    improved = sum(row['delta_iou'] > 0 for row in ablation_rows)
+    worsened = sum(row['delta_iou'] < 0 for row in ablation_rows)
+    ablation = {
+        'raw': raw_summary, 'cleaned': summary,
+        'delta_macro_iou': summary['macro_iou'] - raw_summary['macro_iou'],
+        'improved_cases': improved, 'worsened_cases': worsened,
+        'unchanged_cases': len(rows) - improved - worsened,
+    }
     fpr, tpr, auc = roc_from_histograms(positive, negative)
     base.METRICS.write_csv(rows, output_dir / 'metrics.csv')
+    write_rows(output_dir / 'morphology_ablation.csv', ablation_rows)
     write_rows(output_dir / 'source_hashes.csv', hashes)
     write_rows(output_dir / 'roc_histograms.csv', [
         {'score': index - 1, 'positive_pixels': int(pos), 'negative_pixels': int(neg)}
@@ -97,6 +128,7 @@ def build(images_dir, truth_dir, output_dir=DEFAULT_OUTPUT):
         for threshold, x, y in zip(range(181, -2, -1), fpr, tpr)])
     payload = {'dataset': 'PhotoArt50 204.sunflower, cases 0001–0050',
                'parameters': base.PARAMETERS, 'summary': summary,
+               'morphology_ablation': ablation,
                'pre_morphology_pixel_roc_auc': auc,
                'roc_score': '180 - circular hue distance to 50 degrees; S < 60 or V < 40 gives -1',
                'source_images_committed': False}
@@ -130,6 +162,11 @@ def build(images_dir, truth_dir, output_dir=DEFAULT_OUTPUT):
              f"- Images below IoU 0.5: **{sum(row['iou'] < 0.5 for row in rows)} / 50**.",
              f"- Worst case: **{worst[0]['case']}**, IoU **{worst[0]['iou']:.4f}**.",
              f'- Pre-morphology, pooled-pixel ROC AUC: **{auc:.4f}**.', '',
+             '## Morphology ablation', '',
+             f"- Raw HSV macro IoU **{raw_summary['macro_iou']:.4f}**; after OPEN/CLOSE **{summary['macro_iou']:.4f}** (change **{ablation['delta_macro_iou']:+.4f}**).",
+             f"- Raw precision/recall **{raw_summary['macro_precision']:.4f} / {raw_summary['macro_recall']:.4f}**; after OPEN/CLOSE **{summary['macro_precision']:.4f} / {summary['macro_recall']:.4f}**.",
+             f"- IoU improved in **{improved}** photos, worsened in **{worsened}**, unchanged in **{ablation['unchanged_cases']}**.",
+             'The gain is small and does not hold for every photo. The cleanup increases precision while slightly reducing recall; it is not evidence of universal improvement. Per-photo values are in morphology_ablation.csv.', '',
              'The earlier selected five-image macro IoU was 0.7133. The wider set is more representative of this sunflower class, but is not an independent held-out dataset or evidence for other object classes.', '',
              '## Interpretation and limits', '',
              'Precision exceeds recall: the fixed selection misses substantial parts of some flowers. See worst_cases.png rather than only the strongest examples.', '',

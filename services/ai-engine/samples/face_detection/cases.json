@@ -1,0 +1,45 @@
+{
+  "annotation_method": "Face boxes were drawn by visual inspection of the cited original photographs before running YuNet. Coordinates are x, y, width, height in the original image; they are team-authored evaluation labels, not official NASA or PhotoArt50 annotations.",
+  "cases": [
+    {
+      "id": "single_portrait",
+      "file": "single.jpg",
+      "source_page": "https://science.nasa.gov/image-detail/amf-s69-32616/",
+      "image_url": "https://images-assets.nasa.gov/image/s69-32616/s69-32616~large.jpg",
+      "sha256": "521643c7241e43f8dee61e1dc5cbe0de774b899a3a6d0d2babff9f9c03377edd",
+      "width": 1536,
+      "height": 1920,
+      "boxes": [[520, 190, 580, 770]]
+    },
+    {
+      "id": "three_astronauts",
+      "file": "triple.jpg",
+      "source_page": "https://science.nasa.gov/resource/portrait-apollo-10-msc/",
+      "image_url": "https://assets.science.nasa.gov/dynamicimage/assets/science/psd/lunar-science/2023/09/s69-34385_orig.jpg?crop=faces%2Cfocalpoint&fit=clip&h=5712&w=3916",
+      "sha256": "a24abd1ea8d8b4b38ea1b8964b6cc6827f45069d13416483ab88413419c14013",
+      "width": 3916,
+      "height": 5715,
+      "boxes": [[860, 2280, 330, 530], [1910, 2340, 345, 485], [2825, 2195, 360, 575]]
+    },
+    {
+      "id": "seven_astronauts",
+      "file": "seven.jpg",
+      "source_page": "https://science.nasa.gov/image-detail/missions-sm4/",
+      "image_url": "https://science.nasa.gov/wp-content/uploads/2022/05/missions-sm4-jpg.webp",
+      "sha256": "8445538813fc8bd2727665eeff823fb7fd15f4098ad7d536fb75e8fdc3fb57c3",
+      "width": 3000,
+      "height": 2400,
+      "boxes": [[235, 580, 195, 270], [625, 640, 195, 260], [1055, 800, 185, 245], [1370, 600, 200, 265], [1790, 790, 190, 240], [2205, 740, 190, 255], [2525, 715, 205, 260]]
+    },
+    {
+      "id": "sunflower_negative",
+      "file": "no-face.jpg",
+      "source_page": "https://github.com/BathVisArtData/PhotoArt50/tree/c5f6bc1736607862290b5e2b3cc7522e20d0499f/204.sunflower",
+      "image_url": "https://raw.githubusercontent.com/BathVisArtData/PhotoArt50/c5f6bc1736607862290b5e2b3cc7522e20d0499f/204.sunflower/204p_0001.jpg",
+      "sha256": "6d284bf1754df7ce5565f4d9009a92edfc21a6f57b623e3bc3bbe2af5f483ed6",
+      "width": 300,
+      "height": 200,
+      "boxes": []
+    }
+  ]
+}

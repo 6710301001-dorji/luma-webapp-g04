@@ -5,6 +5,10 @@ modules. They show each module's behavior with known inputs; they do not establi
 accuracy on real photos or replace the course's wider validation requirements.
 No Forge server, model, camera, or external image downloads are needed.
 
+Real-photo evaluations are separate: [50-photo sunflower segmentation](segmentation/README.md)
+and [YuNet face detection](face_detection/README.md) use pinned external photos,
+manual ground truth, and reproducible result files.
+
 ## Reproduce
 
 From the repository root, using the installed project environment:

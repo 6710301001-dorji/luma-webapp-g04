@@ -41,6 +41,36 @@ def test_hue_wrap_and_rejected_pixels(report):
     assert neg[0] == 1    # Rejected saturation, score -1.
 
 
+def test_summary_handles_no_predicted_foreground(report):
+    row = {'case': 'empty-prediction', 'iou': 0.0, 'precision': 1.0,
+           'recall': 0.0, 'true_positive': 0, 'false_positive': 0,
+           'false_negative': 1, 'true_negative': 9}
+    summary = report.base._summary([row])
+    assert summary['micro_iou'] == 0.0
+    assert summary['micro_precision'] == 1.0
+    assert summary['micro_recall'] == 0.0
+    empty = dict(row, iou=1.0, recall=1.0, false_negative=0)
+    empty_summary = report.base._summary([empty])
+    assert empty_summary['micro_iou'] == 1.0
+    assert empty_summary['micro_precision'] == 1.0
+    assert empty_summary['micro_recall'] == 1.0
+
+
+def test_morphology_ablation_removes_isolated_false_positive(report):
+    image = np.zeros((9, 9, 3), dtype=np.uint8)
+    image[4, 4] = cv2.cvtColor(np.array([[[25, 255, 255]]], dtype=np.uint8),
+                                      cv2.COLOR_HSV2BGR)[0, 0]
+    truth = np.zeros((9, 9), dtype=np.uint8)
+
+    raw, cleaned, prediction = report.compare_morphology(image, truth)
+
+    assert raw['iou'] == 0.0
+    assert cleaned['iou'] == 1.0
+    assert raw['false_positive'] == 1
+    assert cleaned['false_positive'] == 0
+    assert not prediction.any()
+
+
 def test_missing_case_fails_instead_of_partial_evaluation(report, tmp_path):
     with pytest.raises(FileNotFoundError):
         report.build(tmp_path, tmp_path, tmp_path / 'output')
@@ -65,6 +95,18 @@ def test_all_50_committed_masks_metrics_and_roc_agree(report):
         rows.append({'case': case, **metrics})
     summary = json.loads((root / 'summary.json').read_text())
     assert summary['summary'] == pytest.approx(report.base._summary(rows))
+    ablation = list(csv.DictReader((root / 'morphology_ablation.csv').open()))
+    assert [row['case'] for row in ablation] == list(report.CASE_IDS)
+    for row in ablation:
+        assert float(row['cleaned_iou']) == pytest.approx(float(saved[row['case']]['iou']))
+        assert float(row['delta_iou']) == pytest.approx(
+            float(row['cleaned_iou']) - float(row['raw_iou']))
+    comparison = summary['morphology_ablation']
+    assert comparison['cleaned'] == pytest.approx(summary['summary'])
+    assert comparison['raw']['macro_iou'] == pytest.approx(
+        np.mean([float(row['raw_iou']) for row in ablation]))
+    assert comparison['improved_cases'] == sum(float(row['delta_iou']) > 0 for row in ablation)
+    assert comparison['worsened_cases'] == sum(float(row['delta_iou']) < 0 for row in ablation)
     hist = list(csv.DictReader((root / 'roc_histograms.csv').open()))
     positive = np.array([int(row['positive_pixels']) for row in hist])
     negative = np.array([int(row['negative_pixels']) for row in hist])

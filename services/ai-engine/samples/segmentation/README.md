@@ -70,5 +70,8 @@ ROC uses raw HSV scores **before morphology**, while IoU and precision/recall
 use the actual morphology-cleaned pipeline masks. Saturation/value-rejected
 pixels are tied at the lowest score, and both ROC endpoints are included.
 `roc_histograms.csv` lets the pooled curve and AUC be recalculated offline.
+`morphology_ablation.csv` compares the raw HSV mask with the cleaned mask for
+every photo; `summary.json` records both aggregate results. The macro IoU gain
+is small, and some photos worsen after cleanup.
 This same-set analysis is not held-out validation, general object recognition,
 or the separate auto-tag classification evaluation still required by #27.

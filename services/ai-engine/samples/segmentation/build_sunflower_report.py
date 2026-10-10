@@ -73,9 +73,9 @@ def _summary(rows):
         "macro_iou": float(np.mean([row["iou"] for row in rows])),
         "macro_precision": float(np.mean([row["precision"] for row in rows])),
         "macro_recall": float(np.mean([row["recall"] for row in rows])),
-        "micro_iou": tp / (tp + fp + fn),
-        "micro_precision": tp / (tp + fp),
-        "micro_recall": tp / (tp + fn),
+        "micro_iou": tp / (tp + fp + fn) if tp + fp + fn else 1.0,
+        "micro_precision": tp / (tp + fp) if tp + fp else 1.0,
+        "micro_recall": tp / (tp + fn) if tp + fn else 1.0,
         **totals,
     }
 
