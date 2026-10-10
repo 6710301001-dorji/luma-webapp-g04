@@ -146,6 +146,28 @@ def test_non_json_reply_falls_back_to_the_status_code():
     assert "500" in message
 
 
+def test_ai_engine_timeout_returns_504_not_502():
+    """[กรณีทดสอบ]: backend รอ ai-engine เกิน FORGE_TIMEOUT_SECONDS (requests.exceptions.Timeout)
+    ต้องได้ status_code=504 (Gateway Timeout) ตาม API contract ไม่ใช่ 502 (Bad Gateway) (#207 ST7)"""
+    import pytest
+    import requests
+    from app.services.forge_client import ForgeClientError
+
+    app = create_app({"TESTING": True, "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
+                      "AI_ENGINE_URL": "http://10.0.0.5:8000"})
+    timed_out = requests.exceptions.Timeout("Read timed out. (read timeout=120)")
+
+    with app.app_context(), \
+            patch("app.services.forge_client.requests.post", side_effect=timed_out), \
+            pytest.raises(ForgeClientError) as failure:
+        generate_image(prompt="cat")
+
+    assert failure.value.status_code == 504
+    message = failure.value.message
+    assert "10.0.0.5" not in message and "8000" not in message and "http" not in message, message
+    assert "ช้า" in message or "timed out" in message.lower()
+
+
 def test_removed_checkpoint_error_is_not_reported_as_forge_offline():
     from app.services.forge_client import _describe_engine_failure
     class Response:

@@ -118,6 +118,12 @@ def _call_ai_engine(path: str, payload: dict, seed: int) -> tuple[str, int]:
 
     try:
         response = requests.post(endpoint, json=payload, timeout=timeout)
+    except requests.exceptions.Timeout as exc:
+        current_app.logger.error("เชื่อมต่อ AI engine ที่ %s เกินเวลา (%ss): %s", endpoint, timeout, exc)
+        raise ForgeClientError(
+            "AI engine ตอบกลับช้าเกินกำหนด / AI engine timed out",
+            status_code=504,
+        ) from exc
     except requests.exceptions.RequestException as exc:
         # host/port ภายในอยู่ใน log เท่านั้น — ข้อความที่ส่งให้ browser ต้องไม่มี
         current_app.logger.error("เชื่อมต่อ AI engine ที่ %s ไม่สำเร็จ: %s", endpoint, exc)

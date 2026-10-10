@@ -11,6 +11,7 @@ import os
 import logging
 import secrets
 from flask import Flask, jsonify
+from flask.json.provider import DefaultJSONProvider
 from flask_migrate import Migrate
 from flask_wtf.csrf import CSRFProtect, generate_csrf
 from app.models import db
@@ -35,6 +36,19 @@ def setup_logging(app: Flask):
 
     app.logger.addHandler(stream_handler)
     app.logger.setLevel(logging.DEBUG if app.debug else logging.INFO)
+
+
+class SafeJSONProvider(DefaultJSONProvider):
+    """JSON ที่ซ้อนลึกมาก ("[" x 100,000) ทำให้ json.loads โยน RecursionError ซึ่งไม่ใช่ ValueError
+    get_json(silent=True) จึงไม่จับ แล้วกลายเป็น 500 ทุก route (fuzz #207)
+    แปลงเป็น ValueError ให้ทุก route ได้ None จาก get_json(silent=True) แล้วตอบ 400 ตามทางเดิม
+    """
+
+    def loads(self, s, **kwargs):
+        try:
+            return super().loads(s, **kwargs)
+        except RecursionError as exc:
+            raise ValueError("JSON ซ้อนลึกเกินไป / JSON is nested too deeply") from exc
 
 
 def create_app(config_overrides: dict | None = None) -> Flask:
@@ -63,6 +77,7 @@ def create_app(config_overrides: dict | None = None) -> Flask:
         static_folder=frontend_dir,
         static_url_path="",
     )
+    app.json = SafeJSONProvider(app)
 
     # 1. กำหนดค่าคอนฟิกเริ่มต้น (Default Configurations)
     app.config.from_mapping(

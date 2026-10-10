@@ -248,3 +248,26 @@ def test_generate_still_accepts_minus_one_and_zero_and_positive_seeds():
     for good_seed in (-1, 0, 1, 12345):
         res = client.post("/api/generate", json={"prompt": "cat", "seed": good_seed})
         assert res.status_code == 202, good_seed
+
+
+def test_generate_rejects_non_finite_and_fractional_numbers():
+    """[กรณีทดสอบ]: Overflow 1e309, ทศนิยมในช่อง integer, และ NaN/Infinity ต้องได้ HTTP 400 ไม่ใช่ 500 (#207 ST1)"""
+    from unittest.mock import patch
+
+    client = _logged_in_client()
+    with patch("app.services.job_queue.generate_image", side_effect=_must_not_reach_ai_engine):
+        # 1. Overflow 1e309 ในช่องจำนวนเต็มต้องได้ 400 ไม่ใช่ uncaught OverflowError -> 500
+        for field in ("steps", "seed", "width", "height"):
+            res = client.post("/api/generate", json={"prompt": "cat", field: 1e309})
+            assert res.status_code == 400, f"{field}=1e309 ควรได้ 400 แต่ได้ {res.status_code}"
+
+        # 2. ทศนิยมในช่องจำนวนเต็มต้องได้ 400 (ห้ามปัดเศษทิ้งเงียบๆ)
+        for field, value in (("steps", 20.9), ("seed", -1.9), ("width", 512.9), ("height", 512.9)):
+            res = client.post("/api/generate", json={"prompt": "cat", field: value})
+            assert res.status_code == 400, f"{field}={value} ควรได้ 400 แต่ได้ {res.status_code}"
+
+        # 3. cfg_scale ที่เป็น NaN หรือ Infinity หรือสตริง 'NaN' ต้องได้ 400
+        for bad_cfg in (float("nan"), float("inf"), float("-inf"), "NaN", "Infinity"):
+            res = client.post("/api/generate", json={"prompt": "cat", "cfg_scale": bad_cfg})
+            assert res.status_code == 400, f"cfg_scale={bad_cfg} ควรได้ 400 แต่ได้ {res.status_code}"
+
