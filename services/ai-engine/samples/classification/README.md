@@ -35,6 +35,20 @@ Boss/Jet should inspect the downloaded images without running the classifier,
 agree on the guide below, and fill the labels, reviewer and notes. Keep uncertain
 labels as `?`. This PR does not claim accuracy or complete #201.
 
+For a quick overview, create numbered contact sheets in a private directory:
+
+```bash
+python services/ai-engine/samples/classification/make_review_sheets.py \
+  --sheet services/ai-engine/samples/classification/diverse_candidate_labels.csv \
+  --images-dir /path/to/private/classification-images \
+  --output-dir /path/to/private/review-sheets
+```
+
+The numbers match CSV data rows, starting at 1 after the header. These sheets
+show only the original images and file names; they contain no predictions or
+suggested labels. Open the full-size originals for uncertain details. Keep the
+derived sheets private with the originals rather than committing the images.
+
 Boss/Jet: review the following definitions before labelling. Look at the original
 images without predictions. Enter `1` for present, `0` for absent, `?` for uncertain.
 Unknown is not equivalent to absent. Mixed/neutral images may have neither warm
