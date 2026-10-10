@@ -5,11 +5,13 @@ import base64
 import binascii
 import math
 from importlib import import_module
+from io import BytesIO
 
 import cv2
 import numpy as np
 import requests
 from flask import Flask, jsonify, request
+from PIL import Image
 
 from forge.client import ForgeError, generate_image, list_checkpoints
 
@@ -19,20 +21,36 @@ LEGACY_KARRAS_SAMPLERS = {
     "DPM++ SDE Karras": "DPM++ SDE",
     "DPM++ 2M SDE Karras": "DPM++ 2M SDE",
 }
+MAX_IMAGE_PIXELS = 2048 * 2048
 extract_palette = import_module("pipeline.04_features.color_palette").extract_palette
 spatial_filters = import_module("pipeline.02_enhancement.spatial_filters")
 segmentation = import_module("pipeline.03_segmentation.segmentation")
 classify_image = import_module("pipeline.04_features.auto_tag").classify
 
 
-def _decode_bgr_image(image_b64):
-    """Decode plain base64 image data into a uint8 BGR array."""
+def _checked_image_bytes(image_b64):
+    """Validate base64 and dimensions before OpenCV expands an image."""
     if not isinstance(image_b64, str) or not image_b64:
         raise ValueError("image must be a nonempty base64 string")
     try:
         image_bytes = base64.b64decode(image_b64, validate=True)
     except (ValueError, binascii.Error) as exc:
         raise ValueError("image must be valid base64") from exc
+    try:
+        with Image.open(BytesIO(image_bytes)) as image:
+            width, height = image.size
+    except Image.DecompressionBombError as exc:
+        raise ValueError(f"image exceeds {MAX_IMAGE_PIXELS} pixels") from exc
+    except (OSError, ValueError) as exc:
+        raise ValueError("image must contain a supported image") from exc
+    if width * height > MAX_IMAGE_PIXELS:
+        raise ValueError(f"image exceeds {MAX_IMAGE_PIXELS} pixels")
+    return image_bytes
+
+
+def _decode_bgr_image(image_b64):
+    """Decode plain base64 image data into a uint8 BGR array."""
+    image_bytes = _checked_image_bytes(image_b64)
     try:
         pixels = cv2.imdecode(
             np.frombuffer(image_bytes, dtype=np.uint8), cv2.IMREAD_COLOR
@@ -216,13 +234,10 @@ def create_app(config=None):
         # ใช้ decode เฉพาะของ route นี้แทน _decode_bgr_image() ที่ใช้ร่วมกับ route อื่น
         # เพราะต้องอ่าน alpha channel ไว้ด้วย (ดูเหตุผลเรื่อง existing_alpha ด้านล่าง)
         # — _decode_bgr_image() ใช้ cv2.IMREAD_COLOR ซึ่งตัด alpha ทิ้งเสมอ ใช้ร่วมไม่ได้
-        image_b64 = data.get("image")
-        if not isinstance(image_b64, str) or not image_b64:
-            return jsonify({"error": "image must be a nonempty base64 string"}), 400
         try:
-            image_bytes = base64.b64decode(image_b64, validate=True)
-        except (ValueError, binascii.Error):
-            return jsonify({"error": "image must be valid base64"}), 400
+            image_bytes = _checked_image_bytes(data.get("image"))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
         try:
             raw = cv2.imdecode(np.frombuffer(image_bytes, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
         except cv2.error:
