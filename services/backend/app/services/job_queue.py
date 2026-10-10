@@ -16,14 +16,18 @@ ai-engine ไม่ต้องเปลี่ยน: worker เรียก POS
   ที่ยังทำอยู่ แล้วภาพเดียวถูกสร้างสองครั้ง)
 """
 
+import base64
+import os
 import threading
 from datetime import timedelta
 
 from flask import current_app
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 
-from app.models import Asset, Job, db
+from app.models import Asset, Job, Tag, db
 from app.models.asset import utcnow
+from app.services.ai_engine_client import PipelineClientError, auto_tag
 from app.services.forge_client import ForgeClientError, generate_image
 
 # enqueue() ปลุก worker ทันที ไม่ต้องรอรอบ poll ถัดไป
@@ -63,8 +67,56 @@ def _finish(job: Job, status: str, error: str | None = None) -> None:
     db.session.commit()
 
 
+def _auto_tag_names(relative_path: str) -> list[str]:
+    """ขอชื่อ tag ของภาพที่เพิ่งสร้างจาก ai-engine (04_features/auto_tag, #207)
+
+    best effort — ล้มแล้วคืน [] ห้ามทำให้งานสร้างภาพล้มตาม เพราะผู้ใช้ได้ภาพแล้ว
+    แค่ไม่มี tag ซึ่งเติมเองทีหลังได้ · เรียกก่อนเปิด transaction ของ asset
+    จะได้ไม่ถือ lock ของ SQLite ไว้ระหว่างรอ HTTP
+    """
+    if not current_app.config.get("AUTO_TAG_ENABLED", True):
+        return []
+    full_path = os.path.join(current_app.instance_path, relative_path)
+    try:
+        with open(full_path, "rb") as f:
+            image_b64 = base64.b64encode(f.read()).decode("ascii")
+    except OSError:
+        current_app.logger.warning("auto-tag: เปิดไฟล์ภาพ %s ไม่ได้ ข้าม tag", relative_path)
+        return []
+    try:
+        return auto_tag(image_b64)
+    except PipelineClientError as e:
+        current_app.logger.warning("auto-tag: ai-engine ใช้ไม่ได้ (%s) ข้าม tag", e.message)
+    except Exception:
+        current_app.logger.warning("auto-tag: ผิดพลาดที่ไม่คาดไว้ ข้าม tag", exc_info=True)
+    return []
+
+
+def _ensure_tags(names: list[str]) -> list[Tag]:
+    """หา tag ตามชื่อ ไม่มีก็สร้าง — tags.name เป็น UNIQUE COLLATE NOCASE ("Warm" = "warm")
+
+    commit แยกทีละชื่อ: ถ้าอีกโปรเซสสร้างชื่อเดียวกันไปก่อน UNIQUE จะปฏิเสธเฉพาะแถวนี้
+    แล้วเราอ่านแถวของเขามาใช้ ไม่ทำให้ asset ทั้งก้อนล้ม
+    tag ที่สร้างแล้วแต่ asset บันทึกไม่สำเร็จจะค้างโดยไม่มีภาพ — ไม่เป็นไร
+    GET /api/tags ใช้ INNER JOIN จึงไม่แสดง tag ที่ไม่มีภาพ
+    """
+    tags = []
+    for name in names:
+        tag = Tag.query.filter(Tag.name == name).first()
+        if tag is None:
+            db.session.add(Tag(name=name))
+            try:
+                db.session.commit()
+            except IntegrityError:
+                db.session.rollback()
+            tag = Tag.query.filter(Tag.name == name).first()
+        if tag is not None:
+            tags.append(tag)
+    return tags
+
+
 def run_job(job_id: int) -> None:
-    """ทำงานหนึ่งงานจนจบ: เรียก ai-engine สร้างภาพ -> บันทึกไฟล์ + แถว assets -> ปิดงาน
+    """ทำงานหนึ่งงานจนจบ: เรียก ai-engine สร้างภาพ -> ขอ auto-tag -> บันทึกไฟล์ + แถว assets -> ปิดงาน
 
     ทุกทางที่ล้มต้องจบที่ _finish(failed) เสมอ ห้ามปล่อยงานค้างสถานะ running (MUST ของ #21)
     """
@@ -80,7 +132,14 @@ def run_job(job_id: int) -> None:
         return
 
     try:
-        asset = Asset(prompt=job.prompt, file_path=relative_path, user_id=job.user_id)
+        tags = _ensure_tags(_auto_tag_names(relative_path))
+    except Exception:
+        db.session.rollback()
+        current_app.logger.warning("job %s: บันทึก tag ไม่สำเร็จ บันทึกภาพต่อโดยไม่มี tag", job_id, exc_info=True)
+        tags = []
+
+    try:
+        asset = Asset(prompt=job.prompt, file_path=relative_path, user_id=job.user_id, tags=tags)
         db.session.add(asset)
         db.session.flush()
         job.asset_id = asset.id

@@ -180,3 +180,39 @@ def find_objects(image_b64: str, params: dict) -> list[dict]:
             box["confidence"] = float(confidence)
         boxes.append(box)
     return boxes
+
+
+# ชื่อ tag ยาวได้ไม่เกินนี้ — tags.name เป็น String(50) (models/tag.py)
+TAG_NAME_MAX = 50
+
+
+def auto_tag(image_b64: str) -> list[str]:
+    """เรียก ai-engine (04_features/auto_tag) เพื่อติด tag ให้ภาพอัตโนมัติ (#207)
+
+    รูปแบบตามที่ตกลงกันใน docs/API_CONTRACT.md ข้อ 5 (26 ก.ย.):
+    ชื่อ tag เป็น string แบนใน metrics.auto_tags · ไม่มี score / namespace
+
+    Returns:
+        list[str]: ชื่อ tag ที่ตัดช่องว่างแล้ว ไม่ซ้ำ (ไม่สนตัวพิมพ์ ตาม COLLATE NOCASE ของตาราง)
+        ข้ามชื่อว่างหรือยาวเกิน TAG_NAME_MAX แทนที่จะทิ้งผลทั้งก้อน
+    """
+    data = _post_pipeline("04_features", "auto_tag", image_b64, {})
+
+    metrics = data.get("metrics")
+    raw = metrics.get("auto_tags") if isinstance(metrics, dict) else None
+    if not isinstance(raw, list):
+        raise PipelineClientError(
+            "ผลลัพธ์จาก AI engine ไม่มีรายการ tag / No tag list returned from AI engine",
+            status_code=502,
+        )
+
+    names, seen = [], set()
+    for item in raw:
+        if not isinstance(item, str):
+            continue
+        name = item.strip()
+        if not name or len(name) > TAG_NAME_MAX or name.lower() in seen:
+            continue
+        seen.add(name.lower())
+        names.append(name)
+    return names

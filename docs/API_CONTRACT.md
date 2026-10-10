@@ -407,6 +407,13 @@ mask)` ตรงๆ ที่มีอยู่แล้วในไพพ์ไ
 คนที่ 2 เก็บเฉพาะชื่อใน `tags` / `asset_tags`; ไม่เพิ่ม namespace หรือ score
 ใน schema ส่วน `reasons` ใช้แสดงผล ทดสอบ และอธิบายในรายงานโดยไม่ต้องเก็บในฐานข้อมูล
 
+**ผูกเข้าระบบแล้ว (#207)**: worker ของคิว (`services/backend/app/services/job_queue.py`) ส่งภาพที่สร้างเสร็จ
+ไปที่ route นี้ทุกงาน แล้วผูกชื่อใน `metrics.auto_tags` กับ asset ผ่านตาราง `tags` / `asset_tags`
+- ชื่อที่ต่างแค่ตัวพิมพ์ใช้แถวเดิม (`tags.name` เป็น `UNIQUE COLLATE NOCASE`)
+- ข้ามชื่อว่าง ไม่ใช่ string หรือยาวเกิน 50 ตัว (`tags.name` เป็น `String(50)`) แทนการทิ้งผลทั้งก้อน
+- ai-engine ล่ม / ตอบไม่ใช่ 200 / `auto_tags` ไม่ใช่ list → งานยัง `done` มีภาพ แต่ไม่มี tag
+- ปิดได้ด้วย `AUTO_TAG_ENABLED = False` ใน `instance/config.py`
+
 ---
 
 ## Checklist ก่อนบอกว่า endpoint เสร็จ
