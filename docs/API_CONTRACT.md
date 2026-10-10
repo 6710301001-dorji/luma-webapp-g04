@@ -200,8 +200,8 @@ Backend เรียก `POST /pipeline/04_features/color_palette` ต่อ (�
 
 เชื่อมต่อ ai-engine ไม่ได้ หรือ response ไม่มี `metrics.color_palette` → 502
 
-> ⚠️ ยังไม่บังคับ login — endpoint นี้ไม่แตะข้อมูลที่เก็บไว้ของผู้ใช้คนไหนเลย (ไม่มี id ให้เดา)
-> เป็นแค่ transform ภาพที่ส่งมาในคำขอเอง ต่างจาก `GET /api/assets` ที่ต้องป้องกันข้อมูลที่เก็บไว้จริง
+> ⚠️ **ต้องล็อกอิน** (#211) — เพื่อป้องกันบุคคลภายนอกใช้งาน CPU/GPU ของเครื่อง AI โดยไม่ได้รับอนุญาต
+> หากไม่ได้ล็อกอินจะได้รับ HTTP 401 Unauthorized เหมือน `/api/generate`
 
 ### ~~`POST /api/pipeline/segmentation/remove_bg`~~ — ยกเลิก (Issue #101, #61)
 

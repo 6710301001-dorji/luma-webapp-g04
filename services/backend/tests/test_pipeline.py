@@ -21,7 +21,19 @@ from app import create_app
 
 def _make_client():
     app = create_app({"TESTING": True, "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:"})
-    return app, app.test_client()
+    client = app.test_client()
+    with client.session_transaction() as sess:
+        sess["user_id"] = 1
+    return app, client
+
+
+def test_palette_extract_unauthenticated_returns_401():
+    """[กรณีทดสอบ #211]: ไม่ได้ login ต้องได้ 401"""
+    app = create_app({"TESTING": True, "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:"})
+    unauth_client = app.test_client()
+    res = unauth_client.post("/api/pipeline/palette/extract", json={"image": "aGVsbG8="})
+    assert res.status_code == 401
+    assert "error" in res.get_json()
 
 
 def test_palette_extract_requires_json():

@@ -31,13 +31,32 @@ REGION = {"x": 10, "y": 20, "width": 100, "height": 50}
 
 def _client():
     app = create_app({"TESTING": True, "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:"})
-    return app.test_client()
+    client = app.test_client()
+    with client.session_transaction() as sess:
+        sess["user_id"] = 1
+    return client
 
 
 def _ok(payload):
     response = Mock(status_code=200)
     response.json.return_value = payload
     return response
+
+
+# ---------------------------------------------------------------- authentication (#211)
+
+def test_pipeline_routes_require_login():
+    """[กรณีทดสอบ #211]: ไม่ได้ login ต้องได้ 401 ทุก pipeline route"""
+    app = create_app({"TESTING": True, "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:"})
+    unauth_client = app.test_client()
+    for url, payload in (
+        (BLUR_URL, {"image": "aGVsbG8=", "region": REGION}),
+        (REMOVE_BG_URL, {"image": "aGVsbG8=", "region": REGION}),
+        (OBJECTS_URL, {"image": "aGVsbG8="}),
+    ):
+        res = unauth_client.post(url, json=payload)
+        assert res.status_code == 401, f"{url} ควรได้ 401 แต่ได้ {res.status_code}"
+        assert res.get_json()["error"] == "ยังไม่ได้เข้าสู่ระบบ / Unauthorized"
 
 
 # ---------------------------------------------------------------- blur-region
