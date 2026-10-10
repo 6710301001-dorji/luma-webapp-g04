@@ -7,12 +7,33 @@ objects such as cats, grass or flowers. No Forge connection is required.
 ## Review the images, not classifier predictions
 
 `candidate_labels.csv` contains 50 **unlabelled** sunflower candidates already
-used in the segmentation evaluation. Their hashes and source revision identify
-the original JPGs. No photo is redistributed. This is a starting pool, not a
-representative classification dataset: add varied colours, brightness, contrast
-and aspect ratios, including negative examples for every tag. Prefer at least
+used in the segmentation evaluation. `diverse_candidate_labels.csv` adds 58
+unlabelled candidates from the OpenCV and scikit-image sample repositories.
+Each new row points to its original file at a pinned Git commit and records its
+SHA-256. No image is committed here. The new pool has 35 landscape, 20 roughly
+square and 3 portrait files by the geometric rule below. This is a more varied
+starting pool, **not** a representative or reviewed dataset; the portrait class
+is especially small. Check after annotation that every tag has positive and
+negative examples. Add team-owned images where coverage is weak. Prefer at least
 50 reviewed images with both positive and negative support per tag. Do not
 select only images that the classifier gets right.
+
+Download the diverse candidates outside the repository (requires `curl`):
+
+```bash
+python services/ai-engine/samples/classification/fetch_candidate_images.py \
+  --sheet services/ai-engine/samples/classification/diverse_candidate_labels.csv \
+  --images-dir /path/to/private/classification-images
+```
+
+The downloader refuses changed or mismatched files; re-running it skips files
+that still match the recorded hashes. Keep the original images out of Git and
+check each source's terms before using or sharing them outside the team's course
+evaluation. The `image` column gives paths under `--images-dir`; the `source`
+column is the exact URL. Rows remain `pending`, with `?` in every label cell.
+Boss/Jet should inspect the downloaded images without running the classifier,
+agree on the guide below, and fill the labels, reviewer and notes. Keep uncertain
+labels as `?`. This PR does not claim accuracy or complete #201.
 
 Boss/Jet: review the following definitions before labelling. Look at the original
 images without predictions. Enter `1` for present, `0` for absent, `?` for uncertain.
