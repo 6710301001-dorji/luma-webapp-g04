@@ -43,6 +43,7 @@
 | สำเร็จ | 200 |
 | ข้อมูลไม่ผ่าน | 400 + `errors` รายฟิลด์ |
 | ซ้ำ | 400 + ข้อความ**กลางๆ** ไม่บอกว่า username หรือ email ซ้ำ (กัน account enumeration) |
+| `displayName` เกิน 80 ตัว / `email` เกิน 255 ตัว | 400 — ตามความยาวคอลัมน์ `users` (SQLite ไม่บังคับให้เอง) |
 
 ```json
 { "errors": { "username": "...", "email": "...", "password": "...", "general": "..." } }
@@ -77,14 +78,26 @@
 
 | ฟิลด์ | ชนิด | ขอบเขต | default | ที่มาของค่าแนะนำ |
 |---|---|---|---|---|
-| `prompt` | string | **ต้องมี** ไม่ว่าง | – | – |
-| `negative_prompt` | string | – | `""` | – |
+| `prompt` | string | **ต้องมี** ไม่ว่าง · ยาวไม่เกิน 1000 ตัว · กฎ prompt ด้านล่าง | – | – |
+| `negative_prompt` | string | ยาวไม่เกิน 1000 ตัว · กฎ prompt ด้านล่าง | `""` | – |
 | `steps` | int | 1–50 | 20 | Lecture 2 หน้า 7 (20–60 พอ) |
 | `cfg_scale` | number | 1–30 | **8** | **Lecture 2 หน้า 10 แนะนำ 8–14** |
 | `sampler_name` | string | ต้องอยู่ใน `SUPPORTED_SAMPLERS` (ดูด้านล่าง) ไม่งั้น **400** | `"DPM++ 2M Karras"` | Lecture 2 หน้า 8–10 |
 | `scheduler` | string (optional) | Nonempty Forge scheduler name; see AI engine rules below | Omitted; legacy Karras names imply `Karras` | AI engine support; backend forwarding requires coordination |
-| `seed` | int | `-1` = สุ่ม | `-1` | Lecture 2 หน้า 5–6 |
+| `seed` | int | `-1` = สุ่ม หรือ 0 ถึง 4,294,967,295 (2³²−1) | `-1` | Lecture 2 หน้า 5–6 |
 | `width` / `height` | int | 512 / 768 / 1024 | 512 | – |
+
+**กฎ prompt** (`services/backend/app/services/prompt_check.py`, #207) — ตอบ **400 ก่อนเข้าคิว** ถ้า prompt จะทำให้ตัวแยก prompt ของ Forge พังหรือค้าง
+(ทดสอบกับ `modules/prompt_parser.py` ของ Forge จริง + differential fuzz 100,000 prompt):
+
+| ปฏิเสธ | เพราะ Forge |
+|---|---|
+| น้ำหนักแปลงเป็นเลขไม่ได้ `(cat:1.2.3)` `(cat:.)` | `ValueError` |
+| เลข step ของ prompt editing เกิน ±1,000,000 `[cat:dog:1e309]` | `OverflowError` |
+| วงเล็บ `( [ {` ซ้อนเกิน 20 ชั้น · ยาวเกิน 1000 ตัว | ตัวแยกช้าเกินเส้นตรง — 2000 ตัวที่วงเล็บถี่ใช้ 4.7 วินาที, ซ้อน 2000 ชั้นค้าง |
+
+**รับตามปกติ** (Forge ไม่พัง): วงเล็บไม่ครบ `(cat` `cat)` · น้ำหนักเป็นคำ `(cat:abc)` (Forge ถือเป็นข้อความ) · escape `\(` · ไทย/emoji
+ปรับเพดานได้ด้วย `PROMPT_MAX_CHARS` / `PROMPT_MAX_BRACKET_DEPTH`
 
 > ⚠️ **v1 ตั้ง `cfg_scale` default = 7 ซึ่งต่ำกว่าที่อาจารย์แนะนำ** → v2 ใช้ 8
 > ⚠️ **v1 ไม่รับ `sampler_name` และ `seed` เลย** ทั้งที่เป็นพารามิเตอร์ที่อาจารย์เน้น → v2 ต้องรับ
@@ -130,7 +143,7 @@ Query params ที่ต้องรองรับ (สเปก Asset Hub —
 
 | param | ตัวอย่าง | ความหมาย |
 |---|---|---|
-| `tags` | `?tags=portrait,anime` | คั่นด้วย comma, ต้องมี **ทุก** tag ที่ระบุ (AND intersection), ไม่พบตอบ 200 items ว่าง |
+| `tags` | `?tags=portrait,anime` | คั่นด้วย comma, ต้องมี **ทุก** tag ที่ระบุ (AND intersection), ไม่พบตอบ 200 items ว่าง · ไม่เกิน **20 tag** (ตัดซ้ำแบบไม่สนตัวพิมพ์ก่อนนับ) ไม่งั้น 400 |
 | `q` | `?q=sakura` | ค้นในข้อความ prompt |
 | `sort` | `?sort=created_at:desc` | เรียงลำดับ |
 | `page` / `per_page` | `?page=2&per_page=20` | แบ่งหน้า |

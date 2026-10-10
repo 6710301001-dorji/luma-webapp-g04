@@ -192,6 +192,8 @@ def get_asset_image(asset_id):
 | `FORGE_TIMEOUT_SECONDS` | `120` | ai-engine ต้องตอบภายในเวลานี้ · `deploy/nginx/luma.conf` ตั้ง `proxy_read_timeout` ให้มากกว่านี้เสมอ |
 | `MAX_CONTENT_LENGTH` | `32 MB` | เพดานขนาด request ทั้งก้อน (#179) ตรงกับ `client_max_body_size 30m` ของ Nginx |
 | `IMG2IMG_MAX_BYTES` | `10 MB` | เพดานต่อภาพหนึ่งใบใน `/api/img2img` (ต้นฉบับ/mask แยกกันนับ) ไม่อยู่ใน `config.py.example` — ตั้งเองได้ถ้าต้องการ |
+| `PROMPT_MAX_CHARS` | `1000` | ความยาวสูงสุดของ `prompt` / `negative_prompt` — ตัวแยก prompt ของ Forge ช้าเกินเส้นตรงเมื่อยาวและวงเล็บถี่ (`prompt_check.py`) ไม่อยู่ใน `config.py.example` |
+| `PROMPT_MAX_BRACKET_DEPTH` | `20` | วงเล็บซ้อนได้กี่ชั้น — 2000 ชั้นทำ Forge ค้าง ไม่อยู่ใน `config.py.example` |
 | `AI_ENGINE_TIMEOUT_SECONDS` | `30` | timeout ต่อคำขอหนึ่งครั้งไปหา ai-engine (`ai_engine_client.py`) ไม่อยู่ใน `config.py.example` |
 | `JOB_STALE_AFTER_SECONDS` | `FORGE_TIMEOUT_SECONDS × 2` (`240`) | งาน `running` เก่ากว่านี้ถือว่าค้าง เอากลับมาเข้าคิวใหม่ (`job_queue.py`) ไม่อยู่ใน `config.py.example` |
 | `SESSION_COOKIE_SECURE` | `False` | ต้องเป็น `True` ตอน deploy หลัง HTTPS จริง ไม่งั้น cookie `csrf_token` หลุดผ่าน HTTP ได้ (`set_cookie(..., secure=...)`) |
