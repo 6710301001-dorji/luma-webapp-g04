@@ -20,6 +20,38 @@
     "false_negative": 482226,
     "true_negative": 1822608
   },
+  "morphology_ablation": {
+    "raw": {
+      "case_count": 50,
+      "macro_iou": 0.6589390629429487,
+      "macro_precision": 0.867215593023425,
+      "macro_recall": 0.7389399419123428,
+      "micro_iou": 0.6723256378342922,
+      "micro_precision": 0.8765012553874929,
+      "micro_recall": 0.7426800665147529,
+      "true_positive": 1379627,
+      "false_positive": 194389,
+      "false_negative": 478006,
+      "true_negative": 1812192
+    },
+    "cleaned": {
+      "case_count": 50,
+      "macro_iou": 0.6609190313773814,
+      "macro_precision": 0.8740274795693775,
+      "macro_recall": 0.7368675510096547,
+      "micro_iou": 0.6736887528739629,
+      "micro_precision": 0.8820217009324218,
+      "micro_recall": 0.7404083583786464,
+      "true_positive": 1375407,
+      "false_positive": 183973,
+      "false_negative": 482226,
+      "true_negative": 1822608
+    },
+    "delta_macro_iou": 0.0019799684344327106,
+    "improved_cases": 32,
+    "worsened_cases": 18,
+    "unchanged_cases": 0
+  },
   "pre_morphology_pixel_roc_auc": 0.878472972867448,
   "roc_score": "180 - circular hue distance to 50 degrees; S < 60 or V < 40 gives -1",
   "source_images_committed": false

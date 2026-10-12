@@ -7,6 +7,14 @@ All 50 cases (0001–0050) use the unchanged five-photo HSV settings; no per-ima
 - Worst case: **204p_0018**, IoU **0.2827**.
 - Pre-morphology, pooled-pixel ROC AUC: **0.8785**.
 
+## Morphology ablation
+
+- Raw HSV macro IoU **0.6589**; after OPEN/CLOSE **0.6609** (change **+0.0020**).
+- Raw precision/recall **0.8672 / 0.7389**; after OPEN/CLOSE **0.8740 / 0.7369**.
+- IoU improved in **32** photos, worsened in **18**, unchanged in **0**.
+
+The per-photo effects are mixed; the macro scores above summarize the net change. Per-photo values are in morphology_ablation.csv.
+
 The earlier selected five-image macro IoU was 0.7133. The wider set is more representative of this sunflower class, but is not an independent held-out dataset or evidence for other object classes.
 
 ## Interpretation and limits

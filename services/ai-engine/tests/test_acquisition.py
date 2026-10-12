@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 import pytest
 from PIL import Image
+from PIL.TiffImagePlugin import IFDRational
 
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "pipeline" / "01_acquisition" / "acquisition.py"
@@ -44,6 +45,36 @@ def test_real_image_metadata_exif_and_normalization(tmp_path):
     normalized = acquisition.normalize_width(image)
     assert normalized.shape == (384, 512, 3)
     assert isinstance(normalized, np.ndarray)
+
+
+def test_read_exif_uses_camera_sub_ifd(tmp_path):
+    path = tmp_path / "camera-sub-ifd.jpg"
+    exif = Image.Exif()
+    camera = exif.get_ifd(0x8769)
+    camera[37386] = IFDRational(50, 1)  # FocalLength
+    camera[34855] = 200  # PhotographicSensitivity
+    camera[33434] = IFDRational(1, 125)  # ExposureTime
+    camera[41989] = 75  # FocalLengthIn35mmFilm
+    Image.new("RGB", (16, 16)).save(path, exif=exif)
+
+    assert acquisition.read_exif(path) == {
+        "focal_length_mm": 50.0,
+        "iso": 200,
+        "exposure_seconds": 0.008,
+        "focal_length_35mm_equivalent_mm": 75,
+    }
+
+
+def test_read_exif_handles_invalid_camera_values(tmp_path):
+    path = tmp_path / "camera-invalid-sub-ifd.jpg"
+    exif = Image.Exif()
+    camera = exif.get_ifd(0x8769)
+    camera[34855] = (100, 100)  # EXIF permits multiple ISO readings
+    camera[37386] = IFDRational(0, 0)  # undefined focal length
+    camera[41989] = 0  # EXIF uses zero for an unknown 35 mm equivalent
+    Image.new("RGB", (16, 16)).save(path, exif=exif)
+
+    assert acquisition.read_exif(path) == {"iso": 100}
 
 
 def test_extreme_aspect_ratio_is_rejected(tmp_path):

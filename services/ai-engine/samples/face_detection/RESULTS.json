@@ -1,0 +1,272 @@
+{
+  "dataset": "Four manually annotated NASA/PhotoArt50 photos",
+  "annotation_method": "Face boxes were drawn by visual inspection of the cited original photographs before running YuNet. Coordinates are x, y, width, height in the original image; they are team-authored evaluation labels, not official NASA or PhotoArt50 annotations.",
+  "model_sha256": "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4",
+  "opencv_version": "5.0.0",
+  "max_image_side": 1024,
+  "confidence_min": 0.6,
+  "min_size": 20,
+  "match_iou_threshold": 0.5,
+  "summary": {
+    "images": 4,
+    "faces": 11,
+    "true_positive": 2,
+    "false_positive": 9,
+    "false_negative": 9,
+    "precision": 0.18181818181818182,
+    "recall": 0.18181818181818182,
+    "f1": 0.18181818181818182,
+    "center_hits": {
+      "true_positive": 11,
+      "false_positive": 0,
+      "false_negative": 0,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    "mean_matched_iou": 0.5690277653732587
+  },
+  "cases": [
+    {
+      "case": "single_portrait",
+      "image_size": [
+        819,
+        1024
+      ],
+      "truth_boxes": [
+        [
+          277,
+          101,
+          310,
+          411
+        ]
+      ],
+      "predicted_boxes": [
+        [
+          303,
+          159,
+          240,
+          328
+        ]
+      ],
+      "center_hits": {
+        "true_positive": 1,
+        "false_positive": 0,
+        "false_negative": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "ground_truth_faces": 1,
+      "detected_faces": 1,
+      "true_positive": 1,
+      "false_positive": 0,
+      "false_negative": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "mean_matched_iou": 0.6178478926300919,
+      "matched_ious": [
+        0.6178478926300919
+      ]
+    },
+    {
+      "case": "three_astronauts",
+      "image_size": [
+        702,
+        1024
+      ],
+      "truth_boxes": [
+        [
+          154,
+          409,
+          59,
+          94
+        ],
+        [
+          342,
+          419,
+          62,
+          87
+        ],
+        [
+          506,
+          393,
+          65,
+          103
+        ]
+      ],
+      "predicted_boxes": [
+        [
+          351,
+          437,
+          46,
+          61
+        ],
+        [
+          516,
+          409,
+          46,
+          61
+        ],
+        [
+          162,
+          427,
+          45,
+          56
+        ]
+      ],
+      "center_hits": {
+        "true_positive": 3,
+        "false_positive": 0,
+        "false_negative": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "ground_truth_faces": 3,
+      "detected_faces": 3,
+      "true_positive": 1,
+      "false_positive": 2,
+      "false_negative": 2,
+      "precision": 0.3333333333333333,
+      "recall": 0.3333333333333333,
+      "mean_matched_iou": 0.5202076381164257,
+      "matched_ious": [
+        0.5202076381164257
+      ]
+    },
+    {
+      "case": "seven_astronauts",
+      "image_size": [
+        1024,
+        819
+      ],
+      "truth_boxes": [
+        [
+          80,
+          198,
+          67,
+          92
+        ],
+        [
+          213,
+          218,
+          67,
+          89
+        ],
+        [
+          360,
+          273,
+          63,
+          84
+        ],
+        [
+          468,
+          205,
+          68,
+          90
+        ],
+        [
+          611,
+          270,
+          65,
+          81
+        ],
+        [
+          753,
+          253,
+          64,
+          87
+        ],
+        [
+          862,
+          244,
+          70,
+          89
+        ]
+      ],
+      "predicted_boxes": [
+        [
+          89,
+          214,
+          47,
+          60
+        ],
+        [
+          764,
+          268,
+          45,
+          60
+        ],
+        [
+          477,
+          224,
+          46,
+          57
+        ],
+        [
+          880,
+          260,
+          44,
+          57
+        ],
+        [
+          372,
+          286,
+          44,
+          57
+        ],
+        [
+          226,
+          238,
+          44,
+          55
+        ],
+        [
+          621,
+          288,
+          40,
+          50
+        ]
+      ],
+      "center_hits": {
+        "true_positive": 7,
+        "false_positive": 0,
+        "false_negative": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "ground_truth_faces": 7,
+      "detected_faces": 7,
+      "true_positive": 0,
+      "false_positive": 7,
+      "false_negative": 7,
+      "precision": 0.0,
+      "recall": 0.0,
+      "mean_matched_iou": null,
+      "matched_ious": []
+    },
+    {
+      "case": "sunflower_negative",
+      "image_size": [
+        300,
+        200
+      ],
+      "truth_boxes": [],
+      "predicted_boxes": [],
+      "center_hits": {
+        "true_positive": 0,
+        "false_positive": 0,
+        "false_negative": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "ground_truth_faces": 0,
+      "detected_faces": 0,
+      "true_positive": 0,
+      "false_positive": 0,
+      "false_negative": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "mean_matched_iou": null,
+      "matched_ious": []
+    }
+  ]
+}
