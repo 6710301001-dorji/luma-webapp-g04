@@ -71,6 +71,9 @@ The Function page uses two additional routes:
 All pipeline routes accept plain base64 rather than Data URLs. Invalid images,
 booleans in numeric fields, out-of-range parameters, and regions outside the
 image receive HTTP 400.
+Images above 4,194,304 pixels (the area of a 2048 × 2048 image) also receive
+HTTP 400 before OpenCV decodes them; this includes very small compressed files
+that would otherwise expand into large images in memory.
 
 When Forge runs on another computer, set `FORGE_URL` to its reachable address
 (for example, `http://192.168.1.30:7860`) before starting this service. `localhost`
