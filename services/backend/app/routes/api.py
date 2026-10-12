@@ -373,10 +373,11 @@ def handle_palette_extract():
     ประมวลผลจริงผ่าน POST /pipeline/04_features/color_palette (มี mock ให้ทดสอบ
     แล้วที่ tools/mock_forge_server.py)
 
-    ไม่บังคับ login เหมือน /api/generate — endpoint นี้ไม่แตะข้อมูลที่เก็บไว้ของ
-    ผู้ใช้คนไหนเลย (ไม่มี id ให้เดา ไม่มีความเสี่ยง IDOR) เป็นแค่ transform ภาพที่
-    ส่งมาในคำขอเอง ต่างจาก GET /api/assets ที่ต้องป้องกันข้อมูลที่เก็บไว้จริง
+    ต้อง login (#211) — เพื่อป้องกันบุคคลภายนอกใช้งาน CPU/GPU ของเครื่อง AI โดยไม่ได้รับอนุญาต
     """
+    if "user_id" not in session:
+        return jsonify({"error": "ยังไม่ได้เข้าสู่ระบบ / Unauthorized"}), 401
+
     data = request.get_json(silent=True)
     if not isinstance(data, dict) or not data:
         return jsonify({"error": "คำขอต้องเป็น JSON object / Request must be a JSON object"}), 400
@@ -430,9 +431,11 @@ def handle_blur_region():
     ส่งต่อให้ ai-engine ที่ POST /pipeline/02_enhancement/blur ซึ่งเรียก
     pipeline/02_enhancement/spatial_filters.gaussian() อีกที
 
-    ไม่บังคับ login เหมือน /api/pipeline/palette/extract — เป็นแค่ transform ภาพที่
-    ส่งมาในคำขอเอง ไม่แตะข้อมูลที่เก็บไว้ของผู้ใช้คนไหน (ไม่มี id ให้เดา)
+    ต้อง login (#211) — เพื่อป้องกันบุคคลภายนอกใช้งาน CPU ของเครื่อง AI
     """
+    if "user_id" not in session:
+        return jsonify({"error": "ยังไม่ได้เข้าสู่ระบบ / Unauthorized"}), 401
+
     data = request.get_json(silent=True)
     image_b64, error = _image_from_request(data)
     if error:
@@ -479,9 +482,11 @@ def handle_remove_background():
     pipeline/03_segmentation/segmentation.py::remove_background() ตรงๆ (ฟังก์ชันนี้มีอยู่
     ในไพพ์ไลน์แล้วแต่ไม่เคยมี route ผูกให้เรียกผ่าน HTTP มาก่อน)
 
-    ไม่บังคับ login เหมือน /api/pipeline/blur-region — เป็นแค่ transform ภาพที่
-    ส่งมาในคำขอเอง ไม่แตะข้อมูลที่เก็บไว้ของผู้ใช้คนไหน (ไม่มี id ให้เดา)
+    ต้อง login (#211) — เพื่อป้องกันบุคคลภายนอกใช้งาน CPU ของเครื่อง AI
     """
+    if "user_id" not in session:
+        return jsonify({"error": "ยังไม่ได้เข้าสู่ระบบ / Unauthorized"}), 401
+
     data = request.get_json(silent=True)
     image_b64, error = _image_from_request(data)
     if error:
@@ -521,7 +526,11 @@ def handle_find_objects():
     ไม่ผูกกับอัลกอริทึมข้างใน เปลี่ยนได้โดยไม่กระทบ evidence ที่ commit ไปแล้ว
 
     คืนแค่พิกัด ไม่วาดลงภาพ — หน้าเว็บวาดกรอบเอง ผู้ใช้จึงยังเห็นภาพต้นฉบับชัดๆ
+    ต้อง login (#211) — เพื่อป้องกันบุคคลภายนอกใช้งาน CPU ของเครื่อง AI
     """
+    if "user_id" not in session:
+        return jsonify({"error": "ยังไม่ได้เข้าสู่ระบบ / Unauthorized"}), 401
+
     data = request.get_json(silent=True)
     image_b64, error = _image_from_request(data)
     if error:

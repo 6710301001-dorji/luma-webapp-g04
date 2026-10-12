@@ -273,6 +273,8 @@ def test_oversized_request_returns_json_not_html():
     """
     app = create_app({"TESTING": True, "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:"})
     client = app.test_client()
+    with client.session_transaction() as sess:
+        sess["user_id"] = 1
 
     too_big = b"A" * (33 * 1024 * 1024)
     res = client.post("/api/pipeline/palette/extract", data=too_big,
