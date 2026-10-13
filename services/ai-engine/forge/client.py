@@ -3,6 +3,7 @@
 import base64
 import binascii
 import json
+import re
 from io import BytesIO
 
 import requests
@@ -19,8 +20,14 @@ def generate_image(payload, forge_base_url, timeout=120):
     forge_payload = {key: value for key, value in payload.items() if key != "checkpoint"}
     if checkpoint != "default":
         models = list_checkpoints(forge_base_url, min(timeout, 30))
-        if checkpoint not in {model["title"] for model in models}:
-            raise ForgeError("Forge checkpoint is no longer available; refresh the model list")
+        titles = [model["title"] for model in models]
+        if checkpoint not in titles:
+            # Forge adds its 10-character hash after first loading a model.
+            matches = [title for title in titles
+                       if re.sub(r" \[[0-9a-fA-F]{10}\]$", "", title) == checkpoint]
+            if len(matches) != 1:
+                raise ForgeError("Forge checkpoint is no longer available; refresh the model list")
+            checkpoint = matches[0]
         forge_payload["override_settings"] = {"sd_model_checkpoint": checkpoint}
         forge_payload["override_settings_restore_afterwards"] = True
     return _request_image(forge_payload, forge_base_url, "txt2img", timeout)

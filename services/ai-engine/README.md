@@ -170,9 +170,12 @@ TINY_PNG_B64 = ("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ"
 ## Checkpoint selection (#205)
 
 `GET /forge/checkpoints` returns sanitized `items` with model `title` from Forge.
-`POST /forge/txt2img` accepts `checkpoint` (an exact title, or `default`).
+`POST /forge/txt2img` accepts `checkpoint` (a catalogue title, or `default`).
 Selected titles are checked against the current list, then sent as
 `override_settings.sd_model_checkpoint`, with restoration after the request.
 A missing title fails instead of silently generating with another model.
+If Forge appends its 10-character hash after loading a model, the earlier title
+without that hash still resolves to the unique current title. Ambiguous names
+and mismatched hashes are rejected; no directory or filename is discarded.
 
 Forge references: [model catalogue](https://github.com/lllyasviel/stable-diffusion-webui-forge/blob/main/modules/api/api.py) and [per-request overrides](https://github.com/lllyasviel/stable-diffusion-webui-forge/blob/main/modules/processing.py).

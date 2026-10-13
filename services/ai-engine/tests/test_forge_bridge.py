@@ -219,6 +219,70 @@ def test_checkpoint_catalogue_and_selected_model_reach_forge(monkeypatch):
     assert len(sent) == 1  # Never silently generate with the wrong model.
 
 
+def test_checkpoint_can_be_generated_twice_when_forge_adds_hash(monkeypatch):
+    checkpoint = r"sd\majicmixRealistic_v7.safetensors"
+    current_title = checkpoint
+    sent = []
+
+    class Response:
+        def __init__(self, data):
+            self.data = data
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self.data
+
+    monkeypatch.setattr(requests, "get", lambda *args, **kwargs: Response([
+        {"title": current_title},
+    ]))
+
+    def post(url, json, timeout):
+        nonlocal current_title
+        sent.append(json)
+        current_title = checkpoint + " [7c819b6d13]"
+        return Response({"images": [VALID_PNG], "seed_used": 42})
+
+    monkeypatch.setattr(requests, "post", post)
+    client = create_app({"TESTING": True, "FORGE_URL": "http://forge"}).test_client()
+    for _ in range(2):
+        response = client.post("/forge/txt2img", json={
+            "prompt": "cat", "checkpoint": checkpoint,
+        })
+        assert response.status_code == 200
+        assert response.json == {"images": [VALID_PNG], "seed_used": 42}
+
+    assert [body["override_settings"]["sd_model_checkpoint"] for body in sent] == [
+        checkpoint, checkpoint + " [7c819b6d13]",
+    ]
+
+
+@pytest.mark.parametrize("checkpoint,titles", [
+    (r"sd\missing.safetensors", [r"sd\model.safetensors [7c819b6d13]"]),
+    (r"sd\model.safetensors [aaaaaaaaaa]", [r"sd\model.safetensors [7c819b6d13]"]),
+    (r"sd\model.safetensors", [r"other\model.safetensors [7c819b6d13]"]),
+    (r"sd\model.safetensors", [
+        r"sd\model.safetensors [7c819b6d13]", r"sd\model.safetensors [aaaaaaaaaa]",
+    ]),
+])
+def test_checkpoint_alias_never_selects_a_missing_or_ambiguous_model(monkeypatch, checkpoint, titles):
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return [{"title": title} for title in titles]
+
+    monkeypatch.setattr(requests, "get", lambda *args, **kwargs: Response())
+    monkeypatch.setattr(requests, "post", lambda *args, **kwargs: pytest.fail("Forge was called"))
+    response = create_app({"TESTING": True, "FORGE_URL": "http://forge"}).test_client().post(
+        "/forge/txt2img", json={"prompt": "cat", "checkpoint": checkpoint},
+    )
+    assert response.status_code == 502
+    assert "no longer available" in response.json["error"]
+
+
 @pytest.mark.parametrize("data", [{}, [None], [{"title": 5}], [{"title": ""}]])
 def test_checkpoint_catalogue_rejects_malformed_response(monkeypatch, data):
     class Response:
